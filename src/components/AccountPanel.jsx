@@ -20,7 +20,7 @@ function explainError(error) {
   return messages[error.code] || error.message || "Something went wrong. Please try again.";
 }
 
-export default function AccountPanel({ career, canLoad, onLoad, onClose }) {
+export default function AccountPanel({ career, canLoad, onLoad, onClose, onCloudSaved }) {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -53,6 +53,7 @@ export default function AccountPanel({ career, canLoad, onLoad, onClose }) {
         <button className="close-modal" onClick={onClose} aria-label="Close account" disabled={busy}><X size={20} /></button>
         <p className="eyebrow">THE DUGOUT · ACCOUNT</p>
         <h2 id="account-title">{user ? "Your account" : creating ? "Create account" : "Sign in"}</h2>
+        <div className="career-detail"><strong>Current manager: {career.managerName || "Not created yet"}</strong><p>{career.matches.length} completed matches on this device.</p><p>{user ? `Cloud account: ${user.email}` : "Guest mode · no cloud account signed in"}</p></div>
         {saved && <div className="save-confirmation" role="status" aria-live="polite">
           <CheckCircle2 size={24} aria-hidden="true" />
           <div><strong>Career saved successfully</strong><p>Your manager and {career.matches.length} completed match{career.matches.length === 1 ? "" : "es"} have been saved to Firebase.</p></div>
@@ -63,6 +64,7 @@ export default function AccountPanel({ career, canLoad, onLoad, onClose }) {
           <p>Cloud saves are manual. Save before switching devices, then load your career on the other device.</p>
           <button className="primary-button" disabled={busy || !career.managerName.trim()} onClick={() => perform(async () => {
             await saveCloudCareer(user.uid, career);
+            onCloudSaved?.(user.uid, career);
             setSaved(true);
           })}>{saved ? "Saved to Firebase" : busy ? "Saving / connecting..." : "Save browser career to cloud"}</button>
           <button className="secondary-button" disabled={busy || !canLoad} onClick={() => perform(async () => {
@@ -70,20 +72,20 @@ export default function AccountPanel({ career, canLoad, onLoad, onClose }) {
             if (!cloud) { setMessage("No cloud career yet. Create your manager, then save this browser's career."); return; }
             const sameManager = !career.managerName || career.managerName === cloud.managerName;
             onLoad(sameManager ? mergeCareers(cloud, career) : cloud);
-            setMessage("Cloud career loaded. A backup of your previous browser career was kept.");
+            setMessage(`Manager ${cloud.managerName} loaded from ${user.email}. A backup of your previous browser career was kept.`);
           })}>Load cloud career</button>
           {!canLoad && <p>Finish your current match before loading another career.</p>}
           <button className="secondary-button" disabled={busy} onClick={() => perform(async () => {
             await signOut(auth);
             setMessage("Signed out. Your local career remains on this browser.");
-          })}>Sign out</button>
+          })}>Sign out of cloud account</button>
         </> : <form onSubmit={event => {
           event.preventDefault();
           perform(async () => {
             const authenticate = creating ? createUserWithEmailAndPassword : signInWithEmailAndPassword;
             await authenticate(auth, email.trim(), password);
             setPassword("");
-            setMessage("Signed in. Choose whether to save this browser's career or load your cloud career.");
+            setMessage(creating ? "Account created successfully. Your manager is still saved on this device. Use Save to cloud to back it up." : "Signed in successfully. Your current manager has not changed. Save to cloud or load the manager saved to this account.");
           });
         }}>
           <label htmlFor="account-email">Email</label>

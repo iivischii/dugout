@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import "../styles/Welcome.css";
 import dugoutLogo from "../assets/dugout.png";
 
-export default function WelcomePage({ career, onContinue, onCreate, onAccount }) {
+export default function WelcomePage({ career, onContinue, onCreate, onAccount, accountEmail }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const hasManager = Boolean(career.managerName.trim());
@@ -38,6 +38,7 @@ export default function WelcomePage({ career, onContinue, onCreate, onAccount })
           </>
         )}
         <button className="secondary-button" onClick={onAccount}>Account / Cloud saves</button>
+        <p className="welcome-note">{accountEmail}</p>
         <p className="welcome-note">Career saved on this browser. Cloud saves are available in Account.</p>
       </section>
     </main>

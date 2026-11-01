@@ -57,6 +57,19 @@ export function managementSituation({ home, away, events, context = {}, recentTy
     text: `Recent shots: ${homeShots.length} for you, ${awayShots.length} for the opposition. Keep the volume, change the creator, or commit more players?`, choices: [focus, risk, patient] });
   if (!homeShots.length) candidates.push({ type: "stalled-attack", title: "Your attack needs a new approach",
     text: `Your team has not produced a shot in the recent spell. ${creator?.name || "Your midfield"} could be the focal point, or you could trade patience for more attacking commitments.`, choices: [focus, risk, patient] });
+  const protect = { label: "Regroup and tighten the shape", tactic: "protect", note: "Allow 20% fewer opposition shots, at the cost of 25% of your own attacking volume." };
+  const lastGoal = events.findLast(event => event.kind === "goal");
+  if (lastGoal) candidates.unshift(lastGoal.side === "home"
+    ? { type: "after-scoring", title: "You scored. What is the next move?", text: "The restart is a chance to reset your approach. Chase another goal, settle into possession, or give the opposition fewer openings?", choices: [risk, patient, protect] }
+    : { type: "after-conceding", title: "A setback. Your players look to the touchline", text: "Push for an immediate response or restore control before committing forward. Your next instruction changes the balance of the next spell.", choices: [risk, focus, protect] });
+  if (context.minute >= 55 && context.canSubstitute) {
+    const replacement = activePlayers(home).filter(player => player.role !== "GK").sort((a, b) => attackProfile(a).creation - attackProfile(b).creation)[0];
+    if (replacement) candidates.push({ type: "bench-impact", title: "Could the bench change this game?", text: `There are substitutions available. Review a replacement for ${replacement.name}, or keep the XI and change the way you build attacks.`, choices: [
+      { label: `Review a change for ${replacement.name}`, action: "substitute", playerId: replacement.id, note: "Compare available players. No substitution is made until you confirm your choice." }, focus, patient,
+    ] });
+  }
+  if (context.minute >= 70 && context.homeScore === context.awayScore) candidates.push({ type: "late-level", title: "Level late on. Settle or go for the winner?", text: "The game is still there to be won. Commit more players, seek a better opening, or reduce the chances at both ends.", choices: [risk, patient, protect] });
+  candidates.push({ type: "control-or-risk", title: "Choose how open this game should be", text: "You can tighten the shape, commit more players forward, or use your main creator. Each route changes the opportunities at both ends.", choices: [protect, risk, focus] });
   candidates.push({ type: "tempo-choice", title: "Set the tempo for the next spell",
     text: `The score is ${context.homeScore ?? 0}–${context.awayScore ?? 0}. Recent shots are ${homeShots.length}–${awayShots.length}. Choose where to put your attacking effort.`, choices: [focus, patient, balance] });
   // Late score pressure takes priority. Otherwise avoid the last two situation types.
@@ -64,7 +77,7 @@ export function managementSituation({ home, away, events, context = {}, recentTy
   const emergency = recentRed ? candidates.find(candidate => candidate.type === "man-down") || candidates.find(candidate => candidate.type === "man-up") : null;
   const freshBooking = events.some(event => event.kind === "card" && event.side === "home" && event.playerId === booked?.id);
   const booking = freshBooking && !recentTypes.slice(-2).includes("booking-risk") ? candidates.find(candidate => candidate.type === "booking-risk") : null;
-  const late = candidates.find(candidate => ["protect-lead", "chase-game"].includes(candidate.type));
+  const late = candidates.find(candidate => ["protect-lead", "chase-game"].includes(candidate.type) && !recentTypes.slice(-2).includes(candidate.type));
   const clock = !recentTypes.slice(-2).includes("clock-management") ? candidates.find(candidate => candidate.type === "clock-management") : null;
   const selected = emergency || booking || late || clock || candidates.find(candidate => !recentTypes.slice(-2).includes(candidate.type)) || candidates[0];
   return { ...selected, minute: context.minute, basis: { homeShots: homeShots.length, awayShots: awayShots.length, passingLosses: losses.length } };

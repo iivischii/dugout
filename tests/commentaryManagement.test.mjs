@@ -8,6 +8,21 @@ import { pitchFrame } from '../src/match-engine/pitchView.js';
 const home = { name: 'Home', formation: '4-3-3', players: Array.from({ length: 11 }, (_, index) => ({ id: `home-${index}`, name: `Home Player ${index}`, role: index ? 'CM' : 'GK', stats: {} })) };
 const away = { name: 'Away', formation: '4-3-3', players: home.players.map((player, index) => ({ ...player, id: `away-${index}`, name: `Away Player ${index}` })) };
 
+test('decisions react to goals and rotate into bench and late level situations', () => {
+  for (const side of ['home', 'away']) {
+    const situation = managementSituation({ home, away, events: [{ kind: 'goal', side, playerName: 'Scorer' }], context: { minute: 30, homeScore: 1, awayScore: 1 } });
+    assert.equal(situation.type, side === 'home' ? 'after-scoring' : 'after-conceding');
+  }
+  const context = { minute: 72, homeScore: 1, awayScore: 1, canSubstitute: true };
+  const bench = managementSituation({ home, away, events: [], context, recentTypes: ['stalled-attack'] });
+  assert.equal(bench.type, 'bench-impact');
+  assert.ok(bench.choices.some(choice => choice.action === 'substitute' && home.players.some(player => player.id === choice.playerId)));
+  const late = managementSituation({ home, away, events: [], context, recentTypes: ['stalled-attack', 'bench-impact'] });
+  assert.equal(late.type, 'late-level');
+  const noBench = managementSituation({ home, away, events: [], context: { ...context, canSubstitute: false }, recentTypes: ['stalled-attack'] });
+  assert.ok(noBench.choices.every(choice => choice.action !== 'substitute'));
+});
+
 test('quiet play produces named, recorded buildups rather than repeated no-shot filler', () => {
   const history = [];
   for (let minute = 0; minute < 30; minute++) {

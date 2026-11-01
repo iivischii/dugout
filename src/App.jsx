@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, UserRound, Users, Trophy, Settings, LogOut, Play, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, UserRound, Users, Trophy, Settings, Play, SlidersHorizontal } from "lucide-react";
 import { loadPlayers } from "./data/loadPlayer";
 import "./App.css";
 import dugoutLogo from "./assets/dugout.png";
 import PlayerDatabase from "./components/PlayerDatabase";
+import MatchDialog from "./components/MatchDialog";
 import Substitutes from "./components/Substitutes";
 import { databaseSquadPlayer } from "./data/playerSearch";
 import { opponentEditor, validLineup } from "./data/lineups";
@@ -36,6 +37,12 @@ const menuItems = [
 ];
 
 export default function App() {
+  const [cloudSave, setCloudSave] = useState(null);
+  const [accountId, setAccountId] = useState(null);
+  const [mobileView, setMobileView] = useState("feed");
+  const [resultDismissed, setResultDismissed] = useState(false);
+  const [accountEmail, setAccountEmail] = useState("Checking account...");
+  const [localSaved, setLocalSaved] = useState(false);
   const [activeTab, setActiveTab] = useState("profile");
   const [career, setCareer] = useState(readCareer);
   const [matchId, setMatchId] = useState(null);
@@ -86,6 +93,15 @@ export default function App() {
   const finished = ["full-time", "abandoned"].includes(timeline.phase);
   const halftime = timeline.phase === "halftime";
 
+  useEffect(() => {
+    let unsubscribe;
+    let disposed = false;
+    Promise.all([import("firebase/auth"), import("./services/firebase")]).then(([{ onAuthStateChanged }, { auth }]) => {
+      if (!disposed) unsubscribe = onAuthStateChanged(auth, user => { setAccountEmail(user?.email || "Guest · not signed in"); setAccountId(user?.uid || null); }, () => setAccountEmail("Account unavailable"));
+    }).catch(() => setAccountEmail("Account unavailable"));
+    return () => { disposed = true; unsubscribe?.(); };
+  }, []);
+
   const editingAway = editingSide === "away" && !started;
   const formation = editingAway ? awayEditor.formation : homeFormation;
   const lineup = editingAway ? awayEditor.lineup : started && matchTeams ? activePlayers(matchTeams.home).map(player => player.id) : homeLineup;
@@ -98,7 +114,8 @@ export default function App() {
   useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(career));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(career)); setLocalSaved(true); }
+    catch { setLocalSaved(false); }
   }, [career]);
 
   useEffect(() => {
@@ -232,6 +249,8 @@ export default function App() {
     setPendingDecision(null);
     setLastManagementMinute(0);
     setFeed([{ id: 0, minute: 0, kind: "info", text: `Kickoff! Real Madrid face ${opponent}.` }]);
+    setResultDismissed(false);
+    setMobileView("feed");
     setStarted(true);
     setPickedNumber(null);
     setShowSetup(false);
@@ -368,6 +387,7 @@ export default function App() {
   const winRate = career.matches.length ? Math.round(100 * wins / career.matches.length) : 0;
 
   const accountPanel = showAccount && <Suspense fallback={<div className="modal-overlay"><p role="status">Loading account...</p></div>}><AccountPanel career={career}
+    onCloudSaved={(uid, savedCareer) => setCloudSave({ uid, snapshot: JSON.stringify(savedCareer) })}
     canLoad={!started || finished} onClose={() => setShowAccount(false)}
     onLoad={loaded => {
       // Back up the browser career before the user explicitly loads cloud data.
@@ -388,7 +408,7 @@ export default function App() {
 
   if (screen === "welcome") {
     return <>
-      <WelcomePage career={career} onAccount={() => setShowAccount(true)} onContinue={() => setScreen("game")}
+      <WelcomePage accountEmail={accountEmail} career={career} onAccount={() => setShowAccount(true)} onContinue={() => setScreen("game")}
         onCreate={name => {
           setCareer(old => old.managerName.trim() ? old : { ...old, managerName: name });
           setScreen("game");
@@ -399,7 +419,7 @@ export default function App() {
 
   return (
     <div className="app-background">
-      <div className="game-shell">
+      <div className={`game-shell ${started ? "live-match" : ""} mobile-${mobileView}`}>
         <aside className="sidebar">
           <div className="brand-mark"><img src={dugoutLogo} alt="The Dugout" /></div>
           <nav className="sidebar-nav">
@@ -411,10 +431,18 @@ export default function App() {
           <div className="sidebar-bottom">
             <button className="nav-button" title="Settings" onClick={() => setInfoPanel("settings")}><Settings size={20} /></button>
             <button className="nav-button" title="Match setup" aria-label="Match setup" onClick={openMatchSetup}><SlidersHorizontal size={20} /></button>
-            <button className="nav-button" title="Account" aria-label="Account" onClick={() => setShowAccount(true)}><LogOut size={20} /></button>
+            <button className="nav-button" title="Account" aria-label="Account" onClick={() => setShowAccount(true)}><UserRound size={20} /></button>
           </div>
         </aside>
 
+        <header className="manager-bar">
+          <div><strong>{career.managerName || "No manager created"}</strong><small>Real Madrid · {career.matches.length} completed matches · {localSaved ? "Saved on this device" : "Device save unavailable"}</small></div>
+          <button onClick={() => setShowAccount(true)}><UserRound size={16} /><span>{accountEmail}<small>{accountId && cloudSave?.uid === accountId && cloudSave.snapshot === JSON.stringify(career) ? "Cloud save up to date" : "Account · cloud save is manual"}</small></span></button>
+        </header>
+        {started && <div className="mobile-match-tabs" role="group" aria-label="Match view">
+          <button aria-pressed={mobileView === "feed"} onClick={() => setMobileView("feed")}>Live feed · {homeScore} – {awayScore} · {matchMinute(minute, timeline)}</button>
+          <button aria-pressed={mobileView === "pitch"} onClick={() => setMobileView("pitch")}>Pitch</button>
+        </div>}
         <main className="main-content">
           <div className="scoreboard">
             <span>REAL MADRID</span>
@@ -487,14 +515,7 @@ export default function App() {
               <div className="match-controls">
                 {!finished && !halftime && <button className="manager-instructions-button" type="button" disabled={Boolean(pendingDecision) || paused} onClick={giveInstructions}>Give instructions</button>}
                 {halftime ? <HalfTimePanel {...{ homeScore, awayScore, feed, tactic, onTactic: halftimeTactic, onResume: resumeSecondHalf }} /> : pendingDecision ? (
-                  <>
-                    <p className="eyebrow">{matchRules.timedDecisions ? "DECIDE IN " + Math.ceil(timer.remaining / 1000) + "s" : "WHAT DO YOU DO?"}</p>
-                    <div className="decision-choices">
-                      {pendingDecision.choices.map((choice) => (
-                        <button key={choice.label} className="choice-button" disabled={paused} onClick={() => chooseDecision(choice)}>{choice.label}<small>{choice.note}</small></button>
-                      ))}
-                    </div>
-                  </>
+                  <p className="current-tactic">Decision in progress · match clock stopped</p>
                 ) : !finished ? (
                   matchRules.autoPlay ? <p className="current-tactic">{paused ? "MATCH PAUSED" : "MATCH RUNNING"} · {tactic.toUpperCase()}</p> :
                   <button className="primary-button" disabled={paused} onClick={() => advanceMatch(5)}>
@@ -504,13 +525,26 @@ export default function App() {
                   <p className="full-time-label">{timeline.phase === "abandoned" ? "MATCH ABANDONED · No completed result saved" : `FULL TIME · ${homeScore} – ${awayScore}`}</p>
                 )}
               </div>
-              <Substitutes players={bench} onSelect={handleBenchClick} used={substitutions.length}
+              <Substitutes players={bench} used={substitutions.length}
                 limit={matchRules.substitutionLimit} finished={finished} onSubstitute={() => { setSubstitutionOff(""); setShowSubstitution(true); }} />
             </>
           )}
         </aside>
       </div>
 
+      {pendingDecision && !showSubstitution && <MatchDialog title={pendingDecision.title} label="BIG DECISION">
+        <p className="decision-context">{pendingDecision.clockLabel} · Real Madrid {homeScore} – {awayScore} {opponent}</p>
+        <p>{pendingDecision.text}</p>
+        <p className="decision-deadline" role="status">{matchRules.timedDecisions ? (paused ? "Decision timer paused" : "Decide in " + Math.ceil(timer.remaining / 1000) + "s") : "Match paused · take your time"}</p>
+        <div className="decision-choices">{pendingDecision.choices.map(choice => <button key={choice.label} className="choice-button" onClick={() => chooseDecision(choice)}>{choice.label}<small>{choice.note}</small></button>)}</div>
+      </MatchDialog>}
+      {finished && !resultDismissed && <MatchDialog title={timeline.phase === "abandoned" ? "Match abandoned" : homeScore > awayScore ? "Victory!" : homeScore < awayScore ? "A tough defeat" : "Honours even"} label="FULL TIME" onClose={() => setResultDismissed(true)}>
+        <div className={"result-score " + (homeScore > awayScore ? "won" : homeScore < awayScore ? "lost" : "drawn")}><span>Real Madrid</span><strong>{homeScore} – {awayScore}</strong><span>{opponent}</span></div>
+        <p>{timeline.phase === "abandoned" ? "The match was stopped. No completed result was saved." : homeScore > awayScore ? "Job done. Your team delivered when it mattered." : homeScore < awayScore ? "A result to learn from. Regroup and come back stronger." : "A hard-fought draw. There is more to build on."}</p>
+        <p>{timeline.phase !== "abandoned" && (localSaved ? "Saved to your manager career on this device." : "Device save unavailable. Open Account to save to the cloud.")}</p>
+        <button className="primary-button" onClick={() => setResultDismissed(true)}>Review match</button>
+        <button className="secondary-button" onClick={() => { setResultDismissed(true); openMatchSetup(); }}>Next match</button>
+      </MatchDialog>}
       {accountPanel}
       {showSubstitution && started && matchTeams && <SubstitutionModal active={activePlayers(matchTeams.home)} bench={bench}
         initialOff={substitutionOff} used={substitutions.length} limit={matchRules.substitutionLimit} onClose={() => setShowSubstitution(false)} onConfirm={confirmSubstitution} />}
