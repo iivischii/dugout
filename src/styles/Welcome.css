@@ -1,0 +1,27 @@
+.welcome-page { position: relative; isolation: isolate; width: 100%; height: 100dvh; overflow-y: auto; display: grid; place-items: center; padding: 32px 20px; background: radial-gradient(ellipse at 85% 20%, #29445566, transparent 60%), #101011; }
+.welcome-pitch { position: fixed; inset: 8% 8% 8% 48%; z-index: -1; border: 1px solid #54708444; background: repeating-linear-gradient(to bottom, #182c3e44 0%, #182c3e44 12.5%, #1b304244 12.5%, #1b304244 25%); transform: rotate(-12deg); pointer-events: none; }
+.welcome-pitch::before { content: ""; position: absolute; top: 50%; width: 100%; border-top: 1px solid #54708455; }
+.welcome-pitch div { position: absolute; top: 50%; left: 50%; width: 35%; aspect-ratio: 1; border: 1px solid #54708455; border-radius: 50%; transform: translate(-50%, -50%); }
+.welcome-card { width: min(480px, 100%); padding: clamp(24px, 4vw, 44px); border-radius: 22px; border: 1px solid #48484b; background: #202022f5; box-shadow: 0 30px 90px #0006; }
+.welcome-brand { display: block; width: 58px; height: 76px; object-fit: contain; margin-bottom: 24px; }
+.welcome-card .eyebrow { font-size: 9px; line-height: 1.7; letter-spacing: 1.7px; }
+.welcome-card h1 { margin: 18px 0; font-size: clamp(45px, 10vw, 72px); line-height: .98; letter-spacing: -3px; }
+.welcome-card h1 span { color: #f07c72; }
+.welcome-card h2 { margin: 0 0 12px; font-size: 23px; }
+.welcome-description { color: #c1c1c5; line-height: 1.65; font-size: 14px; }
+.welcome-card .ticket-divider { margin: 30px -12px 16px; border-color: #555558; }
+.welcome-card .ticket-divider::before, .welcome-card .ticket-divider::after { background: #101011; }
+.welcome-card .primary-button { background: #f07c72; border-color: #f07c72; color: #171719; }
+.welcome-card .primary-button:hover { background: #f49a92; }
+.welcome-card label { display: block; margin: 20px 0 8px; font-size: 13px; }
+.welcome-note { color: #aaa; font-size: 11px; line-height: 1.6; margin: 16px 0 0; }
+.welcome-returning { overflow-wrap: anywhere; font-size: 15px; }
+.welcome-returning small { display: block; margin-top: 8px; color: #aaa; font-size: 12px; }
+.manager-identity { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
+.manager-initial { display: grid; place-items: center; flex: 0 0 58px; height: 58px; background: #393638; border: 1px solid #f07c72; border-radius: 16px; color: #f07c72; font-weight: 800; font-size: 26px; }
+.manager-identity h3 { overflow-wrap: anywhere; }
+.manager-profile .career-stats b { font-size: clamp(20px, 4vw, 30px); }
+@media (max-width: 430px) {
+  .sidebar .nav-button { width: clamp(30px, 8vw, 38px); }
+  .sidebar, .sidebar-nav, .sidebar-bottom { gap: 2px; }
+}

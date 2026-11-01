@@ -1,0 +1,34 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function ownsCareer(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    match /careers/{uid} {
+      allow read: if ownsCareer(uid);
+      allow create: if ownsCareer(uid)
+        && request.resource.data.keys().hasOnly(['managerName'])
+        && request.resource.data.managerName is string
+        && request.resource.data.managerName.size() > 0
+        && request.resource.data.managerName.size() <= 60;
+      // Manager identity is established once, not edited from the profile.
+      allow update, delete: if false;
+      match /matches/{matchId} {
+        allow read: if ownsCareer(uid);
+        allow create: if ownsCareer(uid)
+          && exists(/databases/$(database)/documents/careers/$(uid))
+          && request.resource.data.id == matchId
+          && request.resource.data.goalsFor is int
+          && request.resource.data.goalsFor >= 0
+          && request.resource.data.goalsAgainst is int
+          && request.resource.data.goalsAgainst >= 0
+          && request.resource.data.result in ['W', 'D', 'L']
+          && request.resource.data.events is list
+          && request.resource.data.decisions is list;
+        // An identical retry is harmless; completed results cannot be rewritten.
+        allow update: if ownsCareer(uid) && request.resource.data == resource.data;
+        allow delete: if false;
+      }
+    }
+  }
+}
