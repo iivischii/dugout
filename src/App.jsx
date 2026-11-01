@@ -4,6 +4,7 @@ import { loadPlayers } from "./data/loadPlayer";
 import "./App.css";
 import dugoutLogo from "./assets/dugout.png";
 import PlayerDatabase from "./components/PlayerDatabase";
+import MatchFeed from "./components/MatchFeed";
 import MatchDialog from "./components/MatchDialog";
 import Substitutes from "./components/Substitutes";
 import { databaseSquadPlayer } from "./data/playerSearch";
@@ -39,7 +40,6 @@ const menuItems = [
 export default function App() {
   const [cloudSave, setCloudSave] = useState(null);
   const [accountId, setAccountId] = useState(null);
-  const [mobileView, setMobileView] = useState("feed");
   const [resultDismissed, setResultDismissed] = useState(false);
   const [accountEmail, setAccountEmail] = useState("Checking account...");
   const [localSaved, setLocalSaved] = useState(false);
@@ -88,7 +88,6 @@ export default function App() {
   const [feed, setFeed] = useState([]);
   const [pendingDecision, setPendingDecision] = useState(null);
   const [lastManagementMinute, setLastManagementMinute] = useState(0);
-  const feedEndRef = useRef(null);
   const prematchRef = useRef(null);
   const finished = ["full-time", "abandoned"].includes(timeline.phase);
   const halftime = timeline.phase === "halftime";
@@ -130,10 +129,6 @@ export default function App() {
       .catch((error) => { console.error("PLAYER DATASET ERROR:", error); setCsvError("Could not load the player database. Please reload to try again."); })
       .finally(() => setDatabaseLoading(false));
   }, []);
-
-  useEffect(() => {
-    if (started) feedEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [feed, pendingDecision, started]);
 
   useEffect(() => {
     if (playerQuery.trim().length >= 2) {
@@ -250,7 +245,6 @@ export default function App() {
     setLastManagementMinute(0);
     setFeed([{ id: 0, minute: 0, kind: "info", text: `Kickoff! Real Madrid face ${opponent}.` }]);
     setResultDismissed(false);
-    setMobileView("feed");
     setStarted(true);
     setPickedNumber(null);
     setShowSetup(false);
@@ -419,7 +413,7 @@ export default function App() {
 
   return (
     <div className="app-background">
-      <div className={`game-shell ${started ? "live-match" : ""} mobile-${mobileView}`}>
+      <div className={`game-shell ${started ? "live-match" : ""}`}>
         <aside className="sidebar">
           <div className="brand-mark"><img src={dugoutLogo} alt="The Dugout" /></div>
           <nav className="sidebar-nav">
@@ -429,20 +423,20 @@ export default function App() {
             })}
           </nav>
           <div className="sidebar-bottom">
+            <details className="console-account">
+              <summary title={career.managerName + " - " + accountEmail} aria-label="Manager and account details"><span>{(career.managerName || "M").slice(0, 2).toUpperCase()}</span><i className={localSaved ? "device-saved" : "device-unsaved"} /></summary>
+        <div className="manager-bar">
+          <div><strong>{career.managerName || "No manager created"}</strong><small>Real Madrid · {career.matches.length} completed matches · {localSaved ? "Saved on this device" : "Device save unavailable"}</small></div>
+          <button onClick={() => setShowAccount(true)}><UserRound size={16} /><span>{accountEmail}<small>{accountId && cloudSave?.uid === accountId && cloudSave.snapshot === JSON.stringify(career) ? "Cloud save up to date" : "Account · cloud save is manual"}</small></span></button>
+        </div>
+
+            </details>
             <button className="nav-button" title="Settings" onClick={() => setInfoPanel("settings")}><Settings size={20} /></button>
             <button className="nav-button" title="Match setup" aria-label="Match setup" onClick={openMatchSetup}><SlidersHorizontal size={20} /></button>
             <button className="nav-button" title="Account" aria-label="Account" onClick={() => setShowAccount(true)}><UserRound size={20} /></button>
           </div>
         </aside>
 
-        <header className="manager-bar">
-          <div><strong>{career.managerName || "No manager created"}</strong><small>Real Madrid · {career.matches.length} completed matches · {localSaved ? "Saved on this device" : "Device save unavailable"}</small></div>
-          <button onClick={() => setShowAccount(true)}><UserRound size={16} /><span>{accountEmail}<small>{accountId && cloudSave?.uid === accountId && cloudSave.snapshot === JSON.stringify(career) ? "Cloud save up to date" : "Account · cloud save is manual"}</small></span></button>
-        </header>
-        {started && <div className="mobile-match-tabs" role="group" aria-label="Match view">
-          <button aria-pressed={mobileView === "feed"} onClick={() => setMobileView("feed")}>Live feed · {homeScore} – {awayScore} · {matchMinute(minute, timeline)}</button>
-          <button aria-pressed={mobileView === "pitch"} onClick={() => setMobileView("pitch")}>Pitch</button>
-        </div>}
         <main className="main-content">
           <div className="scoreboard">
             <span>REAL MADRID</span>
@@ -501,16 +495,9 @@ export default function App() {
                 <span>Your XI: Y {disciplinary.home.yellows} · R {disciplinary.home.reds} · {matchTeams ? activePlayers(matchTeams.home).length : 11} players</span>
                 <span>Opposition: Y {disciplinary.away.yellows} · R {disciplinary.away.reds} · {matchTeams ? activePlayers(matchTeams.away).length : 11} players</span>
               </div>}
-              <div className="match-feed" role="log" aria-live="polite">
-                {feed.map((event) => (
-                  <article className={`feed-event ${event.kind}`} key={event.id}>
-                    <span className="feed-minute">{event.clockLabel || event.minute + "'"}</span>
-                    {event.title && <h3>{event.title}</h3>}
-                    <p>{event.text}</p>
-                  </article>
-                ))}
-                <div ref={feedEndRef} />
-              </div>
+              <Substitutes players={bench} used={substitutions.length}
+                limit={matchRules.substitutionLimit} finished={finished} onSubstitute={() => { setSubstitutionOff(""); setShowSubstitution(true); }} />
+              <MatchFeed events={feed} />
               <div className="ticket-divider" aria-hidden="true" />
               <div className="match-controls">
                 {!finished && !halftime && <button className="manager-instructions-button" type="button" disabled={Boolean(pendingDecision) || paused} onClick={giveInstructions}>Give instructions</button>}
@@ -525,8 +512,7 @@ export default function App() {
                   <p className="full-time-label">{timeline.phase === "abandoned" ? "MATCH ABANDONED · No completed result saved" : `FULL TIME · ${homeScore} – ${awayScore}`}</p>
                 )}
               </div>
-              <Substitutes players={bench} used={substitutions.length}
-                limit={matchRules.substitutionLimit} finished={finished} onSubstitute={() => { setSubstitutionOff(""); setShowSubstitution(true); }} />
+
             </>
           )}
         </aside>

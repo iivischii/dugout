@@ -19,13 +19,18 @@ try {
     await page.getByRole('button', { name: 'Start Match', exact: true }).click();
     assert.ok(await page.locator('.manager-bar').innerText().then(text => text.includes('Mobile Manager')));
     assert.equal(await page.locator('.ticket-match-bench .bench-player').count(), 0);
-    if (width < 851) {
-      assert.equal(await page.locator('.main-content').isVisible(), false);
-      await page.getByRole('button', { name: 'Pitch', exact: true }).click();
-      assert.equal(await page.locator('.pitch').isVisible(), true);
-      await page.getByRole('button', { name: /^Live feed/ }).click();
-      assert.ok(await page.locator('.match-feed').evaluate(el => el.clientHeight) > 150);
-    }
+    assert.equal(await page.locator('.pitch').isVisible(), true);
+    const before = await page.locator('.live-player').first().getAttribute('style');
+    await page.waitForTimeout(450);
+    const after = await page.locator('.live-player').first().getAttribute('style');
+    assert.notEqual(before, after, 'Players keep moving while the feed is visible');
+    assert.ok(await page.locator('.match-feed').evaluate(el => el.clientHeight) <= 240);
+    await page.getByRole('button', { name: 'Continue Match', exact: true }).click();
+    const feed = page.locator('.match-feed');
+    await feed.evaluate(el => { el.scrollTop = 0; });
+    await page.getByRole('button', { name: 'Back to live', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Back to live', exact: true }).click();
+    assert.ok(await feed.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 8));
     await page.getByRole('button', { name: 'Give instructions', exact: true }).click();
     await page.getByRole('dialog').waitFor();
     assert.equal(await page.locator('.match-dialog .choice-button').count(), 3);
