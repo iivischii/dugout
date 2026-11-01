@@ -36,7 +36,7 @@ export default function MatchFeed({ events }) {
       {browsing && <button type="button" onClick={jumpToLatest}>Back to live</button>}
     </div>
     <div ref={viewport} className="match-feed" role="log" aria-label="Match updates" aria-live="off" tabIndex={0}
-      style={{ height }} onScroll={() => {
+      style={{ "--update-height": `${height}px` }} onScroll={() => {
         const element = viewport.current;
         const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 8;
         following.current = atBottom;
