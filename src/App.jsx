@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, UserRound, Users, Trophy, Settings, Play, SlidersHorizontal } from "lucide-react";
 import { loadPlayers } from "./data/loadPlayer";
 import "./App.css";
@@ -32,6 +32,7 @@ import SubstitutionModal from "./components/SubstitutionModal";
 import { eligibleSubstitutes, substitute, SUBSTITUTION_LIMIT } from "./match-engine/substitutions";
 import { loadStatsBombUclIndex, loadStatsBombSeason } from "./data/statsBomb";
 import PlayerInstructionModal from "./components/PlayerInstructionModal";
+import { advanceOnlineRoom, readOnlineRoom, startOnlineSecondHalf } from "./services/onlineMatches";
 
 const AccountPanel = lazy(() => import("./components/AccountPanel"));
 
@@ -77,6 +78,11 @@ export default function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [showGameMode, setShowGameMode] = useState(false);
   const [showOnlineMatch, setShowOnlineMatch] = useState(false);
+  const [onlineRoom, setOnlineRoom] = useState(null);
+  const [onlineBusy, setOnlineBusy] = useState(false);
+  const [onlineError, setOnlineError] = useState("");
+  const [onlineTactic, setOnlineTactic] = useState("balanced");
+  const onlineActivated = useRef(false);
   const [started, setStarted] = useState(false);
   const [homeClub, setHomeClub] = useState("Real Madrid");
   const [draftHomeClub, setDraftHomeClub] = useState("Real Madrid");
@@ -111,6 +117,111 @@ export default function App() {
   const finished = ["full-time", "abandoned"].includes(timeline.phase);
   const halftime = timeline.phase === "halftime";
   const homeTeamName = homeClub === "RANDOM_XI" ? "Random XI" : homeClub;
+  const onlineCanAct = Boolean(onlineRoom && onlineRoom.status === "active" && onlineRoom.turnUid === accountId && !onlineBusy);
+  const onlineTurnName = onlineRoom?.turnUid === onlineRoom?.hostUid ? onlineRoom?.hostName : onlineRoom?.guestName;
+
+  const applyOnlineRoom = useCallback((room) => {
+    setOnlineRoom(room);
+    if (room.status === "waiting") return;
+    const managedSide = room.hostUid === accountId ? "home" : "away";
+    const opponentSide = managedSide === "home" ? "away" : "home";
+    const managed = room[managedSide];
+    const opposition = room[opponentSide];
+    if (!managed || !opposition) return;
+    const projectEvent = event => event.side
+      ? { ...event, side: event.side === managedSide ? "home" : "away" }
+      : event;
+    setScreen("game");
+    setHomeClub(managed.name);
+    setHomeFormation(managed.formation || "4-3-3");
+    setOpponent(opposition.name);
+    setOpponentSeason(opposition.season || "");
+    setMatchTeams({ home: managed, away: opposition });
+    setMatchId(room.code);
+    setHomeScore(room[managedSide === "home" ? "scoreHome" : "scoreAway"]);
+    setAwayScore(room[managedSide === "home" ? "scoreAway" : "scoreHome"]);
+    setMinute(room.minute);
+    setTimeline(room.phase);
+    setFeed(room.events.map(projectEvent));
+    setMatchRules(current => ({ ...current, autoPlay: false, timedDecisions: false, substitutionLimit: SUBSTITUTION_LIMIT }));
+    setStarted(true);
+    setPaused(false);
+    setShowSetup(false);
+    setShowGameMode(false);
+    setOnlineError("");
+    if (!onlineActivated.current) {
+      onlineActivated.current = true;
+      setResultDismissed(false);
+    }
+  }, [accountId]);
+
+  function enterOnlineRoom(room) {
+    onlineActivated.current = false;
+    setOnlineError("");
+    setOnlineTactic(room.hostUid === accountId ? room.homeTactic : room.awayTactic);
+    setShowOnlineMatch(false);
+    if (room.status === "waiting") {
+      setOnlineRoom(room);
+      setStarted(false);
+      setMatchTeams(null);
+      setHomeScore(0);
+      setAwayScore(0);
+      setMinute(0);
+      setTimeline(initialPhase());
+      setFeed([]);
+      setScreen("game");
+      setHomeClub(room.home.name);
+      setHomeSeason(room.home.season || "");
+      setHomeFormation(room.home.formation || "4-3-3");
+      setHomeCustomSquad(room.home.roster || room.home.players);
+      setHomeLineup(room.home.players.map(player => player.id));
+      setOpponent("Waiting for opponent");
+    } else applyOnlineRoom(room);
+  }
+
+  async function playOnlineTurn() {
+    if (!onlineRoom || !accountId || !onlineCanAct) return;
+    setOnlineBusy(true);
+    setOnlineError("");
+    try {
+      await advanceOnlineRoom({ room: onlineRoom, uid: accountId, tactic: onlineTactic });
+      applyOnlineRoom(await readOnlineRoom(onlineRoom.code, accountId));
+    } catch (error) {
+      setOnlineError(error.message || "Could not submit your match decision.");
+    } finally {
+      setOnlineBusy(false);
+    }
+  }
+
+  async function restartOnlineSecondHalf() {
+    if (!onlineRoom || !accountId || !onlineCanAct) return;
+    setOnlineBusy(true);
+    setOnlineError("");
+    try {
+      await startOnlineSecondHalf({ room: onlineRoom, uid: accountId });
+      applyOnlineRoom(await readOnlineRoom(onlineRoom.code, accountId));
+    } catch (error) {
+      setOnlineError(error.message || "Could not restart the second half.");
+    } finally {
+      setOnlineBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!onlineRoom?.code || !accountId) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const latest = await readOnlineRoom(onlineRoom.code, accountId);
+        if (active) applyOnlineRoom(latest);
+      } catch (error) {
+        if (active) setOnlineError(error.message || "Could not refresh the online match.");
+      }
+    };
+    void refresh();
+    const interval = setInterval(refresh, 1800);
+    return () => { active = false; clearInterval(interval); };
+  }, [onlineRoom?.code, accountId, applyOnlineRoom]);
 
   useEffect(() => {
     let unsubscribe;
@@ -275,6 +386,8 @@ export default function App() {
   }
 
   function prepareMatch() {
+    setOnlineRoom(null);
+    onlineActivated.current = false;
     const managedSeed = draftHomeClub === "RANDOM_XI" ? buildRandomTeam(allDatabasePlayers)
       : buildOpponent(allDatabasePlayers, draftHomeClub);
     const opponentSeed = draftOpponent === "RANDOM_XI" ? buildRandomTeam(allDatabasePlayers)
@@ -469,12 +582,15 @@ export default function App() {
     setShowPlayerInstruction(false);
   }
 
-  const timerPaused = paused || halftime || showSubstitution || showPlayerInstruction || Boolean(infoPanel) || showSetup || showGameMode || showAccount || screen !== "game";
+  const timerPaused = Boolean(onlineRoom) || paused || halftime || showSubstitution || showPlayerInstruction || Boolean(infoPanel) || showSetup || showGameMode || showAccount || screen !== "game";
+  const timerRules = onlineRoom ? { ...matchRules, autoPlay: false, timedDecisions: false } : matchRules;
   const timer = useMatchTimer({ matchId, started, paused: timerPaused, finished, minute, decision: pendingDecision,
-    rules: matchRules, onAdvance: advanceMatch,
+    rules: timerRules, onAdvance: advanceMatch,
     onTimeout: () => chooseDecision({ label: "Time expired: keep current instructions", tactic, targetId,
       note: "The deadline passed. Your previous tactical instructions remain in effect." }, true) });
   function openMatchSetup() {
+    setOnlineRoom(null);
+    onlineActivated.current = false;
     setDraftHomeClub(homeClub === "Random XI" || homeClub === "RANDOM_XI" ? "RANDOM_XI" : homeClub);
     setDraftOpponent(opponent === "Random XI" ? "RANDOM_XI" : opponent);
     setInfoPanel(null);
@@ -584,7 +700,23 @@ export default function App() {
         </main>
 
         <aside className="decision-panel">
-          {!started ? (
+          {!started ? onlineRoom ? (
+            <div className="prematch-panel online-waiting-ticket">
+              <p className="eyebrow">ONLINE MATCH · ROOM READY</p>
+              <h2>Waiting for a manager</h2>
+              <p className="panel-description">Share this code with your opponent. The match will appear here as soon as they join.</p>
+              <div className="online-room-code" aria-label={`Room code ${onlineRoom.code}`}>{onlineRoom.code}</div>
+              <p className="lineup-help">You are managing {onlineRoom.home.name}.</p>
+              {onlineError && <p className="csv-error" role="alert">{onlineError}</p>}
+              <button className="secondary-button" type="button" onClick={() => {
+                setOnlineRoom(null);
+                onlineActivated.current = false;
+                setStarted(false);
+                setMatchTeams(null);
+                setOpponent("Barcelona");
+              }}>Leave room</button>
+            </div>
+          ) : (
             <div className="prematch-panel" ref={prematchRef}>
               <p className="eyebrow">{editingAway ? "OPPONENT LINEUP" : "YOUR LINEUP"}</p>
               <div className="editor-tabs" role="group" aria-label="Team to edit">
@@ -624,24 +756,47 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div className="match-feed-header"><p className="eyebrow">LIVE MATCH FEED</p><h2>{pendingDecision ? "Your decision" : timeline.phase === "abandoned" ? "Match abandoned" : finished ? "Full time" : halftime ? "Half time" : "On the touchline"}</h2></div>
+              <div className="match-feed-header"><p className="eyebrow">{onlineRoom ? `ONLINE MATCH · ROOM ${onlineRoom.code}` : "LIVE MATCH FEED"}</p><h2>{pendingDecision ? "Your decision" : timeline.phase === "abandoned" ? "Match abandoned" : finished ? "Full time" : halftime ? "Half time" : "On the touchline"}</h2></div>
               <div className="match-timer" role="status">
-                <span>{timeline.phase === "abandoned" ? "Match stopped" : finished ? "Match complete" : halftime ? "Half-time break · clock stopped" : timeline.phase.endsWith("added") ? `Added time · ${matchMinute(minute, timeline)}` : matchRules.autoPlay ? formatTime(Math.max(0, matchRules.durationMinutes * 60000 - timer.elapsed + Math.max(0, (timeline.halfTimeAt || 45) - 45) * matchRules.durationMinutes * 60000 / 90)) + " regulation time left" : "Manual match"}</span>
-                {!finished && !halftime && <button type="button" onClick={() => setPaused(old => !old)}>{paused ? "Resume" : "Pause"}</button>}
+                <span>{onlineRoom ? "Online · shared match" : timeline.phase === "abandoned" ? "Match stopped" : finished ? "Match complete" : halftime ? "Half-time break · clock stopped" : timeline.phase.endsWith("added") ? `Added time · ${matchMinute(minute, timeline)}` : matchRules.autoPlay ? formatTime(Math.max(0, matchRules.durationMinutes * 60000 - timer.elapsed + Math.max(0, (timeline.halfTimeAt || 45) - 45) * matchRules.durationMinutes * 60000 / 90)) + " regulation time left" : "Manual match"}</span>
+                {!onlineRoom && !finished && !halftime && <button type="button" onClick={() => setPaused(old => !old)}>{paused ? "Resume" : "Pause"}</button>}
               </div>
+              {onlineRoom && <div className={`online-turn-indicator ${onlineRoom.status === "active" && onlineRoom.turnUid === accountId ? "your-turn" : ""}`} role="status">
+                <span className="online-status-dot" />
+                <span>{onlineRoom.status === "waiting" ? "Waiting for another manager to join" : onlineRoom.status === "finished" ? "Full time" : onlineRoom.status === "abandoned" ? "Match abandoned" : onlineBusy ? "Sending your decision..." : onlineRoom.turnUid === accountId ? "Your turn" : `${onlineTurnName || "The other manager"} is making a decision`}</span>
+              </div>}
               {(disciplinary.home.yellows + disciplinary.home.reds + disciplinary.away.yellows + disciplinary.away.reds > 0) && <div className="disciplinary-status" aria-label="Cards and players on the pitch">
                 <span>Your XI: Y {disciplinary.home.yellows} · R {disciplinary.home.reds} · {matchTeams ? activePlayers(matchTeams.home).length : 11} players</span>
                 <span>Opposition: Y {disciplinary.away.yellows} · R {disciplinary.away.reds} · {matchTeams ? activePlayers(matchTeams.away).length : 11} players</span>
               </div>}
-              <Substitutes players={bench} used={substitutions.length}
+              {!onlineRoom && <Substitutes players={bench} used={substitutions.length}
                 limit={matchRules.substitutionLimit} finished={finished} onSubstitute={() => { setSubstitutionOff(""); setShowSubstitution(true); }} />
+              }
               <MatchFeed events={feed} />
               <div className="ticket-divider" aria-hidden="true" />
               <div className="match-controls">
-                {!finished && !halftime && <button className="manager-instructions-button" type="button" disabled={Boolean(pendingDecision) || paused} onClick={giveInstructions}>Give instructions</button>}
-                {!finished && !halftime && <button className="secondary-button" type="button" disabled={Boolean(pendingDecision) || paused}
+                {!onlineRoom && !finished && !halftime && <button className="manager-instructions-button" type="button" disabled={Boolean(pendingDecision) || paused} onClick={giveInstructions}>Give instructions</button>}
+                {!onlineRoom && !finished && !halftime && <button className="secondary-button" type="button" disabled={Boolean(pendingDecision) || paused}
                   onClick={() => setShowPlayerInstruction(true)}>{playerMarking ? `Mark ${playerMarking.targetName}` : "Mark an opponent"}</button>}
-                {halftime ? <HalfTimePanel {...{ homeScore, awayScore, feed, tactic, onTactic: halftimeTactic, onResume: resumeSecondHalf }} /> : pendingDecision ? (
+                {onlineRoom ? onlineRoom.status === "active" && !finished && halftime ? <>
+                  <label htmlFor="online-halftime-tactic">Second-half approach</label>
+                  <select id="online-halftime-tactic" value={onlineTactic} onChange={event => setOnlineTactic(event.target.value)} disabled={!onlineCanAct}>
+                    <option value="balanced">Keep a balanced shape</option>
+                    <option value="patient">Slow down and find openings</option>
+                    <option value="allout">Send more players forward</option>
+                  </select>
+                  {onlineCanAct && <button className="primary-button" disabled={onlineBusy} onClick={restartOnlineSecondHalf}>Start second half</button>}
+                </> : onlineRoom.status === "active" && !finished && onlineCanAct ? <>
+                  <label htmlFor="online-tactic">Your team's approach</label>
+                  <select id="online-tactic" value={onlineTactic} onChange={event => setOnlineTactic(event.target.value)} disabled={onlineBusy}>
+                    <option value="balanced">Keep a balanced shape</option>
+                    <option value="patient">Slow down and find openings</option>
+                    <option value="allout">Send more players forward</option>
+                  </select>
+                  <button className="primary-button" disabled={onlineBusy} onClick={playOnlineTurn}>Play next five minutes</button>
+                  {onlineError && <p className="csv-error" role="alert">{onlineError}</p>}
+                </> : onlineError ? <p className="csv-error" role="alert">{onlineError}</p> : null
+                  : halftime ? <HalfTimePanel {...{ homeScore, awayScore, feed, tactic, onTactic: halftimeTactic, onResume: resumeSecondHalf }} /> : pendingDecision ? (
                   <p className="current-tactic">Decision in progress · match clock stopped</p>
                 ) : !finished ? (
                   matchRules.autoPlay ? <p className="current-tactic">{paused ? "MATCH PAUSED" : "MATCH RUNNING"} · {tactic.toUpperCase()}</p> :
@@ -669,7 +824,7 @@ export default function App() {
       {finished && !resultDismissed && <MatchDialog title={timeline.phase === "abandoned" ? "Match abandoned" : homeScore > awayScore ? "Victory!" : homeScore < awayScore ? "A tough defeat" : "Honours even"} label="FULL TIME" onClose={() => setResultDismissed(true)}>
         <div className={"result-score " + (homeScore > awayScore ? "won" : homeScore < awayScore ? "lost" : "drawn")}><span>{matchTeams?.home.name || homeTeamName}</span><strong>{homeScore} – {awayScore}</strong><span>{opponent}</span></div>
         <p>{timeline.phase === "abandoned" ? "The match was stopped. No completed result was saved." : homeScore > awayScore ? "Job done. Your team delivered when it mattered." : homeScore < awayScore ? "A result to learn from. Regroup and come back stronger." : "A hard-fought draw. There is more to build on."}</p>
-        <p>{timeline.phase !== "abandoned" && (localSaved ? "Saved to your manager career on this device." : "Device save unavailable. Open Account to save to the cloud.")}</p>
+        <p>{timeline.phase !== "abandoned" && (onlineRoom ? "This online result is shared in the room, but is not added to your career record yet." : localSaved ? "Saved to your manager career on this device." : "Device save unavailable. Open Account to save to the cloud.")}</p>
         <button className="primary-button" onClick={() => setResultDismissed(true)}>Review match</button>
         <button className="secondary-button" onClick={() => { setResultDismissed(true); openMatchSetup(); }}>Next match</button>
       </MatchDialog>}
@@ -680,11 +835,17 @@ export default function App() {
 
       {showGameMode && <GameModeModal
         signedIn={Boolean(accountId)}
-        onSinglePlayer={() => { setShowGameMode(false); setShowSetup(true); }}
+        onSinglePlayer={() => {
+          setOnlineRoom(null);
+          onlineActivated.current = false;
+          setStarted(false);
+          setShowGameMode(false);
+          setShowSetup(true);
+        }}
         onMultiplayer={() => { setShowGameMode(false); setShowOnlineMatch(true); }}
         onRequireAccount={() => { setShowGameMode(false); setShowAccount(true); }}
         onClose={() => { setShowGameMode(false); setShowSetup(false);  }} />}
-      <OnlineMatchPanel open={showOnlineMatch} onClose={() => setShowOnlineMatch(false)}
+      <OnlineMatchPanel open={showOnlineMatch} onClose={() => setShowOnlineMatch(false)} onRoomReady={enterOnlineRoom}
         uid={accountId} managerName={career.managerName} players={allDatabasePlayers} clubs={uclClubs} />
       {showSetup && !showGameMode && <MatchSetup homeTeam={draftHomeClub} setHomeTeam={setDraftHomeClub}
         opponent={draftOpponent} setOpponent={setDraftOpponent} players={allDatabasePlayers} clubs={uclClubs}

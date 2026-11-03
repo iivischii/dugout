@@ -228,13 +228,11 @@ input:focus-visible { outline: 2px solid #f07c72; outline-offset: 2px; }
 .usage-list li span { overflow-wrap: anywhere; }
 .usage-list li strong { flex-shrink: 0; color: #f6afa4; }
 .online-match-modal { max-height: min(90dvh, 760px); overflow-y: auto; }
-.online-match-status, .online-your-team { color: #ddd; }
-.online-score { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 14px; border-radius: 10px; background: #292a2e; text-align: center; }
-.online-score strong { overflow-wrap: anywhere; }
-.online-score b { font-size: 24px; color: #c8d89d; white-space: nowrap; }
-.online-score small { grid-column: 1 / -1; color: #ddd; }
-.online-events { max-height: 220px; overflow-y: auto; margin-top: 14px; padding: 8px 12px; border-radius: 10px; background: #292a2e; }
-.online-events p { margin: 8px 0; font-size: 13px; overflow-wrap: anywhere; }
+.online-room-code { margin: 22px 0 12px; padding: 16px; border: 1px dashed #83c6a4; border-radius: 12px; background: #1d2925; color: #b7efce; font-size: clamp(26px, 8vw, 36px); font-weight: 800; letter-spacing: 8px; text-align: center; }
+.online-turn-indicator { display: flex; align-items: center; gap: 9px; margin: 8px 18px; padding: 10px 12px; border: 1px solid #494b51; border-radius: 10px; background: #25272a; color: #d3d4d7; font-size: 12px; }
+.online-turn-indicator.your-turn { border-color: #4e8066; background: #1f332a; color: #c8efd8; }
+.online-status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #edbe64; }
+.online-turn-indicator.your-turn .online-status-dot { background: #83c6a4; box-shadow: 0 0 8px #83c6a4aa; }
 .save-confirmation { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 15px; margin: 16px 0; border: 1px solid #83c6a4; border-radius: 12px; background: #17392b; color: #c5f3d7; }
 .save-confirmation > div { flex: 1; min-width: 150px; }
 .save-confirmation p { color: #d1eddb; margin: 6px 0 0; }
