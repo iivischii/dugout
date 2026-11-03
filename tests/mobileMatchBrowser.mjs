@@ -15,6 +15,7 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(process.env.DUGOUT_TEST_URL || 'http://127.0.0.1:5174');
     await page.getByRole('button', { name: 'Continue Career', exact: true }).click();
+    await page.getByRole('button', { name: 'Match setup', exact: true }).click();
     await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
     await page.getByRole('button', { name: 'Start Match', exact: true }).click();
     await page.getByLabel('Manager and account details').click();

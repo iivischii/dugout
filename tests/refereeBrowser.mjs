@@ -15,6 +15,7 @@ async function start(mobile = false) {
   page.on('pageerror', error => { throw error; });
   await page.goto(base);
   await page.getByRole('button', { name: 'Continue Career', exact: true }).click();
+  await page.getByRole('button', { name: 'Match setup', exact: true }).click();
   await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
   await page.locator('.prematch-panel .primary-button').click();
   return { context, page };

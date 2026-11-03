@@ -34,35 +34,34 @@ export function weightedPlayer(players, measure, random) {
   return players.find((player, index) => (roll -= weights[index]) < 0) || players.at(-1);
 }
 
-export function simulateStep({ home, away, minute, tactic = "balanced", targetId = null, random = Math.random, stepMinutes = 5, endMinute = 90, recentEvents = [], score = { home: 0, away: 0 }, regulationStart = minute }) {
+export function simulateStep({ home, away, minute, tactic = "balanced", homeTactic = tactic, awayTactic = tactic, targetId = null, marking = null, random = Math.random, stepMinutes = 5, endMinute = 90, recentEvents = [], score = { home: 0, away: 0 }, regulationStart = minute }) {
   const events = [];
   let teams = { home, away };
+  const markingActive = () => Boolean(marking && activePlayers(teams.home).some(player => player.id === marking.markerId)
+    && activePlayers(teams.away).some(player => player.id === marking.targetId));
   let homeGoal = 0, awayGoal = 0;
   const attack = (team, defending, side, atMinute) => {
+    const sideTactic = side === "home" ? homeTactic : awayTactic;
     const profiles = new Map(team.players.map(player => [player.id, attackProfile(player)]));
-    const weight = player => player.role === "GK" ? 0 : profiles.get(player.id).shots * (side === "away" && tactic === "contain" && player.id === targetId ? .65 : 1);
+    const weight = player => player.role === "GK" ? 0 : profiles.get(player.id).shots
+      * (side === "away" && sideTactic === "contain" && player.id === targetId ? .65 : 1)
+      * (side === "away" && markingActive() && player.id === marking.targetId ? .4 : 1);
     let total = team.players.reduce((sum, player) => sum + weight(player), 0);
-    if (side === "home" && tactic === "allout") total *= 1.2;
-    if (side === "away" && tactic === "allout") total *= 1.15;
-    if (side === "home" && tactic === "contain") total *= .9;
-    if (side === "away" && tactic === "cutservice") total *= .85;
-    if (side === "home" && tactic === "cutservice") total *= .95;
-    if (side === "home" && tactic === "protect") total *= .75;
-    if (side === "away" && tactic === "protect") total *= .8;
-    if (side === "home" && tactic === "patient") total *= .9;
-    if (side === "away" && tactic === "patient") total *= .95;
-    if (side === "home" && tactic === "playmaker") total *= 1.05;
-    if (side === "away" && tactic === "playmaker") total *= 1.1;
-    if (side === "home" && tactic === "cautious") total *= .9;
-    if (side === "away" && tactic === "cautious") total *= 1.05;
-    if (tactic === "waste-time") total *= side === "home" ? .7 : .8;
+    if (sideTactic === "allout") total *= side === "home" ? 1.2 : 1.15;
+    if (sideTactic === "contain") total *= .9;
+    if (sideTactic === "cutservice") total *= side === "home" ? .95 : .85;
+    if (sideTactic === "protect") total *= side === "home" ? .75 : .8;
+    if (sideTactic === "patient") total *= side === "home" ? .9 : .95;
+    if (sideTactic === "playmaker") total *= side === "home" ? 1.05 : 1.1;
+    if (sideTactic === "cautious") total *= side === "home" ? .9 : 1.05;
+    if (sideTactic === "waste-time") total *= side === "home" ? .7 : .8;
     // A missing defender creates extra exposure; this is a model modifier.
     total *= 1 + Math.max(0, 11 - defending.players.length) * .12;
     if (random() >= 1 - Math.exp(-total / 90)) return;
     const shooter = weightedPlayer(team.players, weight, random);
     const others = team.players.filter(player => player.id !== shooter.id && player.role !== "GK");
-    const creator = weightedPlayer(others, player => profiles.get(player.id).creation * (side === "away" && tactic === "cutservice" && player.id === targetId ? .5 : side === "home" && tactic === "playmaker" && player.id === targetId ? 1.6 : 1), random);
-    const conversion = clamp(profiles.get(shooter.id).conversion * (side === "home" && tactic === "patient" ? 1.12 : 1), 0, .6);
+    const creator = weightedPlayer(others, player => profiles.get(player.id).creation * (side === "away" && sideTactic === "cutservice" && player.id === targetId ? .5 : sideTactic === "playmaker" && player.id === targetId ? 1.6 : 1), random);
+    const conversion = clamp(profiles.get(shooter.id).conversion * (sideTactic === "patient" ? 1.12 : 1), 0, .6);
     const goal = random() < conversion;
     const outcome = goal ? "goal" : random() < .5 ? "saved" : "wide";
     const keeper = defending.players.find(player => player.role === "GK")?.name || `${defending.name}'s goalkeeper`;
@@ -97,21 +96,24 @@ export function simulateStep({ home, away, minute, tactic = "balanced", targetId
   };
   const buildup = atMinute => {
     const side = random() < .5 ? "home" : "away";
+    const sideTactic = side === "home" ? homeTactic : awayTactic;
     const team = { ...teams[side], players: activePlayers(teams[side]) };
     const other = side === "home" ? "away" : "home";
     const opposition = { ...teams[other], players: activePlayers(teams[other]) };
     const outfield = team.players.filter(player => player.role !== "GK");
-    const passer = weightedPlayer(outfield, player => attackProfile(player).creation * (side === "home" && tactic === "playmaker" && player.id === targetId ? 1.6 : 1), random);
+    const passer = weightedPlayer(outfield, player => attackProfile(player).creation * (sideTactic === "playmaker" && player.id === targetId ? 1.6 : 1), random);
     const receiver = weightedPlayer(outfield.filter(player => player.id !== passer.id), player => attackProfile(player).creation + attackProfile(player).shots, random);
     const defenders = opposition.players.filter(player => ["CB", "LB", "RB", "CDM", "LWB", "RWB"].includes(player.role));
     const defender = defenders[Math.min(defenders.length - 1, Math.floor(random() * defenders.length))] || opposition.players[1];
     const roll = random();
-    const lossChance = side === "home" && tactic === "patient" ? .2 : .35;
+    const watched = side === "away" && markingActive() && [passer.id, receiver.id].includes(marking.targetId);
+    const lossChance = Math.min(.9, (sideTactic === "patient" ? .2 : .35) + (watched ? .18 : 0));
     const outcome = roll < lossChance ? "intercepted" : roll < .65 ? "crowded-out" : "recycled";
     const commentary = buildUpCommentary({ side, passer, receiver, defender, outcome }, team, opposition, [...recentEvents, ...events], random);
     events.push({ id: crypto.randomUUID(), minute: atMinute, kind: "buildup", side, outcome, ...commentary,
       creatorId: passer.id, creatorName: passer.name, playerId: receiver.id, playerName: receiver.name,
-      opponentPlayerId: defender.id, opponentPlayerName: defender.name });
+      opponentPlayerId: defender.id, opponentPlayerName: defender.name,
+      ...(watched ? { markingPlayerId: marking.markerId, markedPlayerId: marking.targetId } : {}) });
   };
   for (let atMinute = minute + 1; atMinute <= Math.min(minute + stepMinutes, endMinute); atMinute++) {
     const refereeing = refereeStep(teams, atMinute, { tactic, targetId, random, score: { home: score.home + homeGoal, away: score.away + awayGoal }, regulationMinute: Math.min(90, regulationStart + atMinute - minute) });
@@ -140,8 +142,8 @@ export function decisionFromEvents(events, context = {}) {
     text: `You lead ${context.homeScore}–${context.awayScore} late in the match. ${chance.playerName} has had a recent chance. Going compact reduces their opportunities but also limits your route to another goal.`,
     choices: [
       { label: "Protect the shape and reduce attacking commitments", tactic: "protect", note: "Reduce opposition shots by 20%, but reduce your own by 25%. A lower chance volume does not guarantee a clean sheet." },
-      { label: "Stay balanced and keep a route forward", tactic: "balanced", note: "Remove the extra risk modifiers. You keep your normal attacking volume and normal defensive exposure." },
-      { label: "Go for the goal that could settle it", tactic: "allout", note: "Gain 20% more shot opportunities, while allowing 15% more for the opposition." },
+      { label: "Keep the current approach", tactic: "balanced", note: "Keep a route forward without taking extra risks." },
+      { label: "Go for the goal that could settle it", tactic: "allout", note: "Send more players on. You may find another goal, but could leave space at the back." },
     ],
   };
   if (late && trail) return {
@@ -149,9 +151,9 @@ export function decisionFromEvents(events, context = {}) {
     title: "You are behind. How much will you risk?",
     text: `You trail ${context.homeScore}–${context.awayScore}. More attacking commitments may help you equalize, but ${chance.playerName} remains a threat at the other end.`,
     choices: [
-      { label: "Commit forward for an equalizer", tactic: "allout", note: "Add 20% to your shot volume, but allow 15% more opposition shots. You may concede again." },
-      { label: `Disrupt ${chance.creatorName || "their midfield"} before opening up`, tactic: "cutservice", targetId: chance.creatorId, note: "Cut their shot volume by 15% and this creator's involvement by 50%, but sacrifice 5% of yours while time is running out." },
-      { label: "Keep the balance and trust the current chances", tactic: "balanced", note: "Use normal shot volumes for both teams. You avoid the extra exposure but create no urgency boost." },
+      { label: "Send players forward for an equalizer", tactic: "allout", note: "You may create more chances, but they could hit you on the counter." },
+      { label: `Stop ${chance.creatorName || "their midfield"} getting the ball`, tactic: "cutservice", targetId: chance.creatorId, note: "Make it harder for their main creator to find the ball, though it may slow your attacks too." },
+      { label: "Keep the current approach", tactic: "balanced", note: "Stay patient and avoid opening up the match." },
     ],
   };
   const attempts = events.filter(event => event.side === "away" && ["shot", "goal"].includes(event.kind) && event.playerId === chance.playerId).length;
@@ -161,12 +163,12 @@ export function decisionFromEvents(events, context = {}) {
     title: attempts >= 2 ? `${chance.playerName} keeps finding shots` : `How do you respond to ${chance.playerName}?`,
     text: `${chance.playerName} just had a shot${chance.creatorName ? ` after a pass from ${chance.creatorName}` : ""}. ${context.minute >= 75 ? "Time is running out. " : ""}${context.homeScore > context.awayScore ? "You lead: protect it or keep attacking?" : context.homeScore < context.awayScore ? "You trail: take risks or control their threat?" : "The score is level: how much risk will you take?"}`,
     choices: [
-      { label: `Close down ${chance.playerName} before the shot`, tactic: "contain", targetId: chance.playerId,
-        note: `Cut ${chance.playerName}'s shot weight by 35%, but lose 10% of your own shot volume.` },
-      { label: `Cut the service from ${chance.creatorName || "their midfield"}`, tactic: "cutservice", targetId: chance.creatorId,
-        note: "Reduce their shots by 15% and this creator's involvement by 50%, but lose 5% of your own shot volume." },
+      { label: `Stay close to ${chance.playerName}`, tactic: "contain", targetId: chance.playerId,
+        note: `Ask your players to give ${chance.playerName} less time and space.` },
+      { label: `Stop ${chance.creatorName || "their midfield"} finding them`, tactic: "cutservice", targetId: chance.creatorId,
+        note: "Try to cut off the supply before another chance can develop." },
       { label: "Keep players forward and attack", tactic: "allout",
-        note: "Create 20% more shot opportunities, but give the opposition 15% more too." },
+        note: "Look for a goal, but be ready to defend a counterattack." },
     ],
   };
 }

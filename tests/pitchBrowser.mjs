@@ -14,6 +14,7 @@ async function open(options) {
   page.on('pageerror', error => { throw error; });
   await page.goto(base);
   await page.getByRole('button', { name: 'Continue Career', exact: true }).click();
+  await page.getByRole('button', { name: 'Match setup', exact: true }).click();
   await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
   assert.equal(await page.locator('.player-marker').count(), 11);
   await page.locator('.prematch-panel .primary-button').click();

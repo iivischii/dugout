@@ -1,23 +1,21 @@
-// Example squad until the CSV-driven squad picker is connected.
+// Real Madrid first-team squad for 2026/27.
 export const squad = [
   { number: 1, name: "Courtois", role: "GK" },
-  { number: 8, name: "Valverde", role: "RB" },
-  { number: 3, name: "Militão", role: "CB" },
-  { number: 24, name: "Huijsen", role: "CB" },
-  { number: 20, name: "Fran García", role: "LB" },
-  { number: 14, name: "Tchouaméni", role: "CDM" },
-  { number: 5, name: "Bellingham", role: "CM" },
-  { number: 15, name: "Güler", role: "RW" },
-  { number: 7, name: "Vini Jr.", role: "LW" },
-  { number: 10, name: "Modrić", role: "CAM" },
-  { number: 9, name: "Mbappé", role: "ST" },
-  { number: 6, name: "Camavinga", role: "CM" },
-  { number: 21, name: "Brahim", role: "RW" },
-  { number: 11, name: "Rodrygo", role: "RW" },
-  { number: 2, name: "Carvajal", role: "RB" },
-  { number: 22, name: "Rüdiger", role: "CB" },
   { number: 13, name: "Lunin", role: "GK" },
-  { number: 4, name: "Alaba", role: "CB" },
+  { number: 2, name: "Asencio", role: "CB" },
+  { number: 3, name: "Eder Militão", role: "CB" },
+  { number: 4, name: "Huijsen", role: "CB" },
+  { number: 5, name: "Bellingham", role: "CM" },
+  { number: 6, name: "Camavinga", role: "CM" },
+  { number: 7, name: "Vinícius Júnior", role: "LW" },
+  { number: 8, name: "Valverde", role: "CM" },
+  { number: 10, name: "Mbappé", role: "ST" },
+  { number: 11, name: "Rodrygo", role: "RW" },
+  { number: 12, name: "Trent", role: "RB" },
+  { number: 14, name: "Tchouaméni", role: "CDM" },
+  { number: 15, name: "Arda Güler", role: "CM" },
+  { number: 18, name: "Á. Carreras", role: "LB" },
+  { number: 21, name: "Brahim", role: "F" },
 ];
 
 // Slot order: GK, back line (left to right), midfield, attack.
@@ -41,7 +39,6 @@ export const formations = {
   ],
 };
 
-export const defaultLineup = [1, 20, 24, 3, 8, 14, 5, 7, 10, 15, 9];
+export const defaultLineup = [1, 18, 4, 3, 12, 14, 5, 8, 7, 11, 10];
 export const withId = (player) => ({ ...player, id: `rm-${player.number}` });
 export const normalize = (text) => String(text ?? "").toLocaleLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-

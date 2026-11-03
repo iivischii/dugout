@@ -16,6 +16,7 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(base);
     await page.getByRole('button', { name: 'Continue Career', exact: true }).click();
+    await page.getByRole('button', { name: 'Match setup', exact: true }).click();
     await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
     await page.locator('.prematch-panel .primary-button').click();
     const command = page.getByRole('button', { name: 'Give instructions', exact: true });

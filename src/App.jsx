@@ -13,7 +13,10 @@ import { readSettings, SETTINGS_KEY } from "./data/settings";
 import useMatchTimer from "./hooks/useMatchTimer";
 import { formatTime } from "./match-engine/clock";
 import MatchSetup from "./components/MatchSetup";
-import { legends, buildOpponent, resolvePlayerSeason } from "./data/fantasyTeams";
+import GameModeModal from "./components/GameModeModal";
+import OnlineMatchPanel from "./components/OnlineMatchPanel";
+import { legends, buildOpponent, buildRandomTeam, resolvePlayerSeason, MAX_SQUAD_SIZE } from "./data/fantasyTeams";
+import { FALLBACK_UCL_CLUBS, filterChampionsLeaguePlayers, mergeChampionsLeaguePlayers } from "./data/championsLeague";
 import Pitch from "./components/Pitch";
 import WelcomePage from "./pages/WelcomePage";
 import CareerPage from "./pages/CareerPage";
@@ -27,19 +30,23 @@ import { initialPhase, matchMinute, phaseBoundary, progressPhase } from "./match
 import HalfTimePanel from "./components/HalfTimePanel";
 import SubstitutionModal from "./components/SubstitutionModal";
 import { eligibleSubstitutes, substitute, SUBSTITUTION_LIMIT } from "./match-engine/substitutions";
+import { loadStatsBombUclIndex, loadStatsBombSeason } from "./data/statsBomb";
+import PlayerInstructionModal from "./components/PlayerInstructionModal";
 
 const AccountPanel = lazy(() => import("./components/AccountPanel"));
 
 const menuItems = [
   { id: "profile", icon: UserRound, label: "Manager Profile" },
   { id: "matches", icon: CalendarDays, label: "Matches" },
-  { id: "squad", icon: Users, label: "Squad" },
-  { id: "competitions", icon: Trophy, label: "Competitions" },
+  { id: "play", icon: Users, label: "Play" },
+  { id: "competitions", icon: Trophy, label: "Manager Career" },
 ];
 
 export default function App() {
   const [cloudSave, setCloudSave] = useState(null);
   const [accountId, setAccountId] = useState(null);
+  const [sidebarSigningOut, setSidebarSigningOut] = useState(false);
+  const [sidebarAccountError, setSidebarAccountError] = useState("");
   const [resultDismissed, setResultDismissed] = useState(false);
   const [accountEmail, setAccountEmail] = useState("Checking account...");
   const [localSaved, setLocalSaved] = useState(false);
@@ -51,10 +58,15 @@ export default function App() {
   const [showAccount, setShowAccount] = useState(false);
   const [screen, setScreen] = useState("welcome");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [homeFormation, setHomeFormation] = useState("4-2-3-1");
+  const [homeFormation, setHomeFormation] = useState("4-3-3");
   const [homeLineup, setHomeLineup] = useState(defaultLineup.map(number => `rm-${number}`));
-  const [homeCustomSquad, setHomeCustomSquad] = useState([]);
+  const [homeCustomSquad, setHomeCustomSquad] = useState(() => squad.map(withId));
   const [databasePlayers, setDatabasePlayers] = useState([]);
+  const [uclClubs, setUclClubs] = useState(FALLBACK_UCL_CLUBS);
+  const [statsBombPlayers, setStatsBombPlayers] = useState([]);
+  const [statsBombLoading, setStatsBombLoading] = useState(false);
+  const [statsBombProgress, setStatsBombProgress] = useState({ completed: 0, total: 0 });
+  const [statsBombError, setStatsBombError] = useState("");
   const [playerQuery, setPlayerQuery] = useState("");
   const [replaceSlot, setReplaceSlot] = useState(null);
   const [csvError, setCsvError] = useState("");
@@ -62,8 +74,13 @@ export default function App() {
   const [pickedNumber, setPickedNumber] = useState(null);
   const [draggedNumber, setDraggedNumber] = useState(null);
   const [infoPanel, setInfoPanel] = useState(null);
-  const [showSetup, setShowSetup] = useState(true);
+  const [showSetup, setShowSetup] = useState(false);
+  const [showGameMode, setShowGameMode] = useState(false);
+  const [showOnlineMatch, setShowOnlineMatch] = useState(false);
   const [started, setStarted] = useState(false);
+  const [homeClub, setHomeClub] = useState("Real Madrid");
+  const [draftHomeClub, setDraftHomeClub] = useState("Real Madrid");
+  const [homeSeason, setHomeSeason] = useState("");
   const [opponent, setOpponent] = useState("Barcelona");
   const [draftOpponent, setDraftOpponent] = useState("Barcelona");
   const [matchTeams, setMatchTeams] = useState(null);
@@ -73,9 +90,9 @@ export default function App() {
   const [showSubstitution, setShowSubstitution] = useState(false);
   const [substitutionOff, setSubstitutionOff] = useState("");
   const [opponentSeason, setOpponentSeason] = useState("");
-  const [draftSeason, setDraftSeason] = useState("");
   const [awayEditor, setAwayEditor] = useState(() => opponentEditor(null));
   const [editingSide, setEditingSide] = useState("home");
+  const [rosterError, setRosterError] = useState("");
   const [settings, setSettings] = useState(readSettings);
   const [matchRules, setMatchRules] = useState(readSettings);
   const [paused, setPaused] = useState(false);
@@ -85,12 +102,15 @@ export default function App() {
   const [awayScore, setAwayScore] = useState(0);
   const [tactic, setTactic] = useState("balanced");
   const [targetId, setTargetId] = useState(null);
+  const [playerMarking, setPlayerMarking] = useState(null);
+  const [showPlayerInstruction, setShowPlayerInstruction] = useState(false);
   const [feed, setFeed] = useState([]);
   const [pendingDecision, setPendingDecision] = useState(null);
   const [lastManagementMinute, setLastManagementMinute] = useState(0);
   const prematchRef = useRef(null);
   const finished = ["full-time", "abandoned"].includes(timeline.phase);
   const halftime = timeline.phase === "halftime";
+  const homeTeamName = homeClub === "RANDOM_XI" ? "Random XI" : homeClub;
 
   useEffect(() => {
     let unsubscribe;
@@ -100,6 +120,21 @@ export default function App() {
     }).catch(() => setAccountEmail("Account unavailable"));
     return () => { disposed = true; unsubscribe?.(); };
   }, []);
+
+  async function signOutFromSidebar() {
+    if (!accountId || sidebarSigningOut) return;
+    setSidebarSigningOut(true);
+    setSidebarAccountError("");
+    try {
+      const [{ signOut }, { auth }] = await Promise.all([import("firebase/auth"), import("./services/firebase")]);
+      await signOut(auth);
+    } catch (error) {
+      console.error("SIDEBAR SIGN-OUT ERROR:", error);
+      setSidebarAccountError("Could not sign out. Open your account and try again.");
+    } finally {
+      setSidebarSigningOut(false);
+    }
+  }
 
   const editingAway = editingSide === "away" && !started;
   const formation = editingAway ? awayEditor.formation : homeFormation;
@@ -118,16 +153,53 @@ export default function App() {
   }, [career]);
 
   useEffect(() => {
-    loadPlayers()
-      .then((players) => {
-        setDatabasePlayers([...players, ...legends]);
-        const seed = buildOpponent(players, "Barcelona");
+    let disposed = false;
+    async function loadUclDatabase() {
+      try {
+        const allPlayers = await loadPlayers();
+        let index = null;
+        try {
+          index = await loadStatsBombUclIndex({
+            onProgress: (completed, total) => setStatsBombProgress({ completed, total }),
+          });
+        } catch (error) {
+          console.error("CHAMPIONS LEAGUE INDEX ERROR:", error);
+          setStatsBombError("Could not load extra Champions League player data. The local player list is still available.");
+        }
+        if (disposed) return;
+        const clubs = [...new Set([...FALLBACK_UCL_CLUBS, ...(index?.clubs || []), "Real Madrid"])];
+        setUclClubs(clubs);
+        const filteredPlayers = filterChampionsLeaguePlayers(allPlayers, clubs);
+        setDatabasePlayers(filteredPlayers);
+        const seed = buildOpponent(filteredPlayers, "Barcelona");
         setAwayEditor(old => old.roster.length ? old : opponentEditor(seed));
         setOpponentSeason(old => old || seed?.season || "");
         setCsvError("");
-      })
-      .catch((error) => { console.error("PLAYER DATASET ERROR:", error); setCsvError("Could not load the player database. Please reload to try again."); })
-      .finally(() => setDatabaseLoading(false));
+        setDatabaseLoading(false);
+
+        if (!index) return;
+        setStatsBombLoading(true);
+        setStatsBombProgress({ completed: 0, total: index.latestMatches.length });
+        try {
+          const stats = await loadStatsBombSeason(index.latestCompetition, {
+            matchList: index.latestMatches,
+            onProgress: (completed, total) => setStatsBombProgress({ completed, total }),
+          });
+          if (!disposed) setStatsBombPlayers(filterChampionsLeaguePlayers(stats, clubs));
+        } catch (error) {
+          console.error("CHAMPIONS LEAGUE PLAYER DATA ERROR:", error);
+          if (!disposed) setStatsBombError("Some extra Champions League player data could not be loaded. The local player list is still available.");
+        } finally {
+          if (!disposed) setStatsBombLoading(false);
+        }
+      } catch (error) {
+        console.error("PLAYER DATASET ERROR:", error);
+        if (!disposed) setCsvError("Could not load the player database. Please reload to try again.");
+        if (!disposed) setDatabaseLoading(false);
+      }
+    }
+    loadUclDatabase();
+    return () => { disposed = true; };
   }, []);
 
   useEffect(() => {
@@ -137,7 +209,8 @@ export default function App() {
     }
   }, [playerQuery, databaseLoading]);
 
-  const homeRoster = useMemo(() => [...squad.map(withId).map(player => resolvePlayerSeason(player, databasePlayers)), ...homeCustomSquad], [databasePlayers, homeCustomSquad]);
+  const allDatabasePlayers = useMemo(() => [...mergeChampionsLeaguePlayers(databasePlayers, statsBombPlayers, uclClubs), ...legends], [databasePlayers, statsBombPlayers, uclClubs]);
+  const homeRoster = useMemo(() => homeCustomSquad.map(player => resolvePlayerSeason(player, allDatabasePlayers)), [allDatabasePlayers, homeCustomSquad]);
   const availableSquad = editingAway ? awayEditor.roster : homeRoster;
   const canKickoff = validLineup(homeLineup, homeRoster) && validLineup(awayEditor.lineup, awayEditor.roster);
   const byId = (id) => availableSquad.find(player => player.id === id);
@@ -179,6 +252,11 @@ export default function App() {
     if (started) return;
     const added = databaseSquadPlayer(player, availableSquad);
     const id = added.id;
+    if (!availableSquad.some(item => item.id === id) && availableSquad.length >= MAX_SQUAD_SIZE) {
+      setRosterError(`Your squad is full (${MAX_SQUAD_SIZE} players). Release a substitute before adding someone.`);
+      return;
+    }
+    setRosterError("");
     setCustomSquad(current => current.some(item => item.id === id)
       ? current.map(item => item.id === id ? added : item)
       : [...current, added]);
@@ -189,11 +267,30 @@ export default function App() {
     setPlayerQuery("");
   }
 
+  function releaseSquadPlayer(id) {
+    if (started || lineup.includes(id)) return;
+    setCustomSquad(current => current.filter(player => player.id !== id));
+    setRosterError("");
+    setPickedNumber(null);
+  }
+
   function prepareMatch() {
-    const seed = buildOpponent(databasePlayers, draftOpponent, draftSeason);
-    setOpponent(draftOpponent);
-    setOpponentSeason(seed?.season || draftSeason);
-    if (draftOpponent !== opponent || seed?.season !== opponentSeason || !awayEditor.roster.length) setAwayEditor(opponentEditor(seed));
+    const managedSeed = draftHomeClub === "RANDOM_XI" ? buildRandomTeam(allDatabasePlayers)
+      : buildOpponent(allDatabasePlayers, draftHomeClub);
+    const opponentSeed = draftOpponent === "RANDOM_XI" ? buildRandomTeam(allDatabasePlayers)
+      : buildOpponent(allDatabasePlayers, draftOpponent);
+    if (!managedSeed || !opponentSeed) return;
+    const editor = opponentEditor(managedSeed);
+    setHomeCustomSquad(editor.roster);
+    setHomeLineup(editor.lineup);
+    setHomeFormation(editor.formation);
+    setHomeClub(managedSeed.name);
+    setHomeSeason(managedSeed?.season || "");
+    setOpponent(opponentSeed.name);
+    setOpponentSeason(opponentSeed.season || "");
+    if (draftOpponent === "RANDOM_XI" || draftOpponent !== opponent || opponentSeed.season !== opponentSeason || !awayEditor.roster.length) {
+      setAwayEditor(opponentEditor(opponentSeed));
+    }
     setEditingSide("home");
     setInfoPanel(null);
     setPaused(false);
@@ -210,6 +307,7 @@ export default function App() {
     setFeed([]);
     setTactic("balanced");
     setTargetId(null);
+    setPlayerMarking(null);
     setPendingDecision(null);
     setLastManagementMinute(0);
     setPickedNumber(null);
@@ -222,7 +320,7 @@ export default function App() {
 
   function beginMatch() {
     if (!canKickoff) return;
-    const home = { name: "Real Madrid", players: homeLineup.map((id, index) => ({ ...homeRoster.find(player => player.id === id), role: formations[homeFormation][index][2] })) };
+    const home = { name: homeTeamName, season: homeSeason, players: homeLineup.map((id, index) => ({ ...homeRoster.find(player => player.id === id), role: formations[homeFormation][index][2] })) };
     const away = { name: opponent, season: opponentSeason, formation: awayEditor.formation, players: awayEditor.lineup.map((id, index) => ({ ...awayEditor.roster.find(player => player.id === id), role: formations[awayEditor.formation][index][2] })) };
     setMatchTeams({ home, away });
     setKickoffXI(home.players);
@@ -233,6 +331,7 @@ export default function App() {
     setMatchRules({ ...settings, substitutionLimit: SUBSTITUTION_LIMIT });
     setPaused(false);
     setTargetId(null);
+    setPlayerMarking(null);
     setMatchId(crypto.randomUUID());
     setDecisions([]);
     setMinute(0);
@@ -243,7 +342,7 @@ export default function App() {
     setSelectedPlayer(null);
     setPendingDecision(null);
     setLastManagementMinute(0);
-    setFeed([{ id: 0, minute: 0, kind: "info", text: `Kickoff! Real Madrid face ${opponent}.` }]);
+    setFeed([{ id: 0, minute: 0, kind: "info", text: `Kickoff! ${home.name} face ${opponent}.` }]);
     setResultDismissed(false);
     setStarted(true);
     setPickedNumber(null);
@@ -256,7 +355,7 @@ export default function App() {
     const actualStep = plannedMinute - minute;
     if (actualStep <= 0) return;
     const regulationStart = timeline.halfTimeAt === null ? Math.min(45, minute) : Math.min(90, 45 + minute - timeline.halfTimeAt);
-    const result = simulateStep({ ...matchTeams, minute, tactic, targetId, stepMinutes: actualStep, endMinute: plannedMinute, recentEvents: feed.slice(-20), score: { home: homeScore, away: awayScore }, regulationStart });
+    const result = simulateStep({ ...matchTeams, minute, tactic, targetId, marking: playerMarking, stepMinutes: actualStep, endMinute: plannedMinute, recentEvents: feed.slice(-20), score: { home: homeScore, away: awayScore }, regulationStart });
     const nextMinute = result.playedUntil;
     setMatchTeams(result.teams);
     const events = result.events.map(event => ({ ...event, clockLabel: matchMinute(event.minute, timeline) }));
@@ -273,8 +372,8 @@ export default function App() {
     const gameMinute = nextTimeline.halfTimeAt === null ? nextMinute : 45 + nextMinute - nextTimeline.halfTimeAt;
     const recentEvents = [...feed, ...events].filter(event => event.minute > nextMinute - 8);
     const activeHalf = !["halftime", "full-time", "abandoned"].includes(nextTimeline.phase);
-    const situation = activeHalf && shouldOfferDecision(nextMinute, lastManagementMinute, recentEvents)
-      ? managementSituation({ home: result.teams.home, away: result.teams.away, events: recentEvents, context: { minute: gameMinute, homeScore: goalsFor, awayScore: goalsAgainst, canSubstitute: substitutions.length < matchRules.substitutionLimit && bench.length > 0 }, recentTypes: decisions.map(decision => decision.type).filter(Boolean) }) : null;
+    const situation = activeHalf && shouldOfferDecision(nextMinute, lastManagementMinute, recentEvents, Math.random)
+      ? managementSituation({ home: result.teams.home, away: result.teams.away, events: recentEvents, context: { minute: gameMinute, homeScore: goalsFor, awayScore: goalsAgainst, canSubstitute: substitutions.length < matchRules.substitutionLimit && bench.length > 0 }, recentTypes: decisions.map(decision => decision.type).filter(Boolean), random: Math.random }) : null;
     if (situation) {
       const decision = { ...situation, source: "automatic", minute: nextMinute, clockLabel: matchMinute(nextMinute, nextTimeline) };
       setLastManagementMinute(nextMinute);
@@ -283,7 +382,8 @@ export default function App() {
     }
     if (nextTimeline.phase === "full-time") {
       const record = {
-        id: matchId, date: new Date().toISOString(), opponent, opponentClub: opponent, goalsFor, goalsAgainst, formation: homeFormation,
+        id: matchId, date: new Date().toISOString(), homeTeam: matchTeams.home.name, opponent, opponentClub: opponent, goalsFor, goalsAgainst, formation: homeFormation,
+        playerInstructions: playerMarking ? [playerMarking] : [],
         matchRules, elapsedMinutes: nextMinute,
         addedTime: { firstHalf: nextTimeline.firstAdded, secondHalf: nextTimeline.secondAdded },
         result: goalsFor > goalsAgainst ? "W" : goalsFor < goalsAgainst ? "L" : "D",
@@ -336,7 +436,7 @@ export default function App() {
     if (!started || finished || halftime || pendingDecision || paused) return;
     const gameMinute = timeline.halfTimeAt === null ? Math.min(minute, 45) : Math.min(90, 45 + minute - timeline.halfTimeAt);
     const situation = managementSituation({ home: matchTeams.home, away: matchTeams.away, events: feed.filter(event => event.minute > minute - 8),
-      context: { minute: gameMinute, homeScore, awayScore, canSubstitute: substitutions.length < matchRules.substitutionLimit && bench.length > 0 }, recentTypes: decisions.map(decision => decision.type).filter(Boolean) });
+      context: { minute: gameMinute, homeScore, awayScore, canSubstitute: substitutions.length < matchRules.substitutionLimit && bench.length > 0 },       recentTypes: decisions.map(decision => decision.type).filter(Boolean), random: Math.random });
     const decision = { ...situation, source: "manual", minute, clockLabel: matchMinute(minute, timeline) };
     setLastManagementMinute(minute);
     setPendingDecision(decision);
@@ -360,16 +460,26 @@ export default function App() {
     setShowSubstitution(false);
   }
 
-  const timerPaused = paused || halftime || showSubstitution || Boolean(infoPanel) || showSetup || showAccount || screen !== "game";
+  function confirmPlayerInstruction(instruction) {
+    setPlayerMarking(instruction);
+    const label = instruction ? `${instruction.markerName} will stay close to ${instruction.targetName}` : "Remove the player-marking instruction";
+    setDecisions(old => [...old, { minute, clockLabel: matchMinute(minute, timeline), label, action: "marking", type: "player-instruction", source: "manual", timedOut: false }]);
+    setFeed(old => [...old, { id: crypto.randomUUID(), minute, clockLabel: matchMinute(minute, timeline), kind: "choice", title: label,
+      text: instruction ? "This instruction makes the marked player's shots and attacking link-ups less likely in the match model." : "Your players return to their usual defensive roles." }]);
+    setShowPlayerInstruction(false);
+  }
+
+  const timerPaused = paused || halftime || showSubstitution || showPlayerInstruction || Boolean(infoPanel) || showSetup || showGameMode || showAccount || screen !== "game";
   const timer = useMatchTimer({ matchId, started, paused: timerPaused, finished, minute, decision: pendingDecision,
     rules: matchRules, onAdvance: advanceMatch,
     onTimeout: () => chooseDecision({ label: "Time expired: keep current instructions", tactic, targetId,
       note: "The deadline passed. Your previous tactical instructions remain in effect." }, true) });
   function openMatchSetup() {
-    setDraftOpponent(opponent);
-    setDraftSeason(opponentSeason);
+    setDraftHomeClub(homeClub === "Random XI" || homeClub === "RANDOM_XI" ? "RANDOM_XI" : homeClub);
+    setDraftOpponent(opponent === "Random XI" ? "RANDOM_XI" : opponent);
     setInfoPanel(null);
     setShowSetup(true);
+    setShowGameMode(false);
   }
   function switchEditor(side) {
     setEditingSide(side); setSelectedPlayer(null); setPickedNumber(null); setReplaceSlot(null); setPlayerQuery("");
@@ -387,6 +497,7 @@ export default function App() {
       // Back up the browser career before the user explicitly loads cloud data.
       localStorage.setItem(STORAGE_KEY + "-backup-" + Date.now(), JSON.stringify(career));
       setCareer(loaded);
+      setScreen("game");
       setTimeline(initialPhase());
       setStarted(false);
       setMinute(0);
@@ -397,15 +508,22 @@ export default function App() {
       setMatchId(null);
       setDecisions([]);
       setInfoPanel(null);
-      setShowSetup(true);
+      setShowSetup(false);
+      setShowGameMode(false);
     }} /></Suspense>;
 
   if (screen === "welcome") {
     return <>
-      <WelcomePage accountEmail={accountEmail} career={career} onAccount={() => setShowAccount(true)} onContinue={() => setScreen("game")}
+      <WelcomePage accountEmail={accountEmail} career={career} onAccount={() => setShowAccount(true)} onContinue={() => {
+        setScreen("game");
+        setShowSetup(false);
+        setShowGameMode(false);
+      }}
         onCreate={name => {
           setCareer(old => old.managerName.trim() ? old : { ...old, managerName: name });
           setScreen("game");
+          setShowSetup(false);
+          setShowGameMode(false);
         }} />
       {accountPanel}
     </>;
@@ -419,27 +537,41 @@ export default function App() {
           <nav className="sidebar-nav">
             {menuItems.map((item) => {
               const Icon = item.icon;
-              return <button key={item.id} className={`nav-button ${activeTab === item.id ? "active" : ""}`} title={item.label} aria-label={item.label} onClick={() => { setActiveTab(item.id); setInfoPanel(item.id); setSelectedHistory(null); }}><Icon size={20} /></button>;
+              return <button key={item.id} className={`nav-button ${activeTab === item.id ? "active" : ""}`} title={item.label} aria-label={item.label} onClick={() => {
+                setActiveTab(item.id);
+                setSelectedHistory(null);
+                if (item.id === "play") {
+                  setInfoPanel(null);
+                  setShowSetup(false);
+                  setShowGameMode(true);
+                } else {
+                  setShowGameMode(false);
+                  setInfoPanel(item.id);
+                }
+              }}><Icon size={20} /></button>;
             })}
           </nav>
           <div className="sidebar-bottom">
             <details className="console-account">
               <summary title={career.managerName + " - " + accountEmail} aria-label="Manager and account details"><span>{(career.managerName || "M").slice(0, 2).toUpperCase()}</span><i className={localSaved ? "device-saved" : "device-unsaved"} /></summary>
         <div className="manager-bar">
-          <div><strong>{career.managerName || "No manager created"}</strong><small>Real Madrid · {career.matches.length} completed matches · {localSaved ? "Saved on this device" : "Device save unavailable"}</small></div>
+          <div><strong>{career.managerName || "No manager created"}</strong><small>{homeTeamName} · {career.matches.length} completed matches · {localSaved ? "Saved on this device" : "Device save unavailable"}</small></div>
           <button onClick={() => setShowAccount(true)}><UserRound size={16} /><span>{accountEmail}<small>{accountId && cloudSave?.uid === accountId && cloudSave.snapshot === JSON.stringify(career) ? "Cloud save up to date" : "Account · cloud save is manual"}</small></span></button>
+        {accountId && <button type="button" className="sidebar-logout" onClick={signOutFromSidebar} disabled={sidebarSigningOut}>
+          {sidebarSigningOut ? "Logging out…" : "Log out"}
+        </button>}
+        {sidebarAccountError && <p className="csv-error" role="alert">{sidebarAccountError}</p>}
         </div>
 
             </details>
             <button className="nav-button" title="Settings" onClick={() => setInfoPanel("settings")}><Settings size={20} /></button>
             <button className="nav-button" title="Match setup" aria-label="Match setup" onClick={openMatchSetup}><SlidersHorizontal size={20} /></button>
-            <button className="nav-button" title="Account" aria-label="Account" onClick={() => setShowAccount(true)}><UserRound size={20} /></button>
           </div>
         </aside>
 
         <main className="main-content">
           <div className="scoreboard">
-            <span>REAL MADRID</span>
+            <span>{matchTeams?.home.name.toUpperCase() || homeTeamName.toUpperCase()}</span>
             <div className="score-center"><strong>{homeScore} - {awayScore}</strong><small>{matchMinute(minute, timeline)}</small></div>
             <span>{opponent.toUpperCase()}</span>
           </div>
@@ -465,23 +597,29 @@ export default function App() {
               <select id="formation" className="formation-select" value={formation} onChange={(event) => { setFormation(event.target.value); setSelectedPlayer(null); setPickedNumber(null); setReplaceSlot(null); }}>
                 {Object.keys(formations).map((name) => <option key={name}>{name}</option>)}
               </select>
-              <p className="panel-description lineup-help">Opponent: {opponent} ({opponentSeason || "choose a season"})</p>
-              <p className="lineup-help">Selected seasons drive an experimental attacking model. Missing statistics use model defaults; player style and defending are not fully modelled.</p>
+              <p className="panel-description lineup-help">Your team: {homeTeamName} · Opponent: {opponent}</p>
+              <p className="lineup-help">Player stats help shape attacks. When stats are missing, the game estimates them.</p>
               <button className="secondary-button" type="button" onClick={() => { setLineup(Array(11).fill(null)); setSelectedPlayer(null); setPickedNumber(null); setReplaceSlot(null); }}>Clear XI</button>
-              <p className="lineup-count">{editingAway ? "OPPONENT SQUAD" : "YOUR SQUAD"} · {starters.length}/11 STARTERS</p>
+              <p className="lineup-count">{editingAway ? "OPPONENT SQUAD" : "YOUR SQUAD"} · {starters.length}/11 STARTERS · {availableSquad.length}/{MAX_SQUAD_SIZE} PLAYERS</p>
+              {availableSquad.length >= MAX_SQUAD_SIZE
+                ? <p className="csv-error" role="alert">Your squad is full ({MAX_SQUAD_SIZE} players). You can't add anyone else until you release a substitute.</p>
+                : rosterError && <p className="csv-error" role="alert">{rosterError}</p>}
               <p className="panel-description lineup-help">Select a player below, then tap the green position circle on the pitch to swap them in.</p>
               <div className="ticket-squad-list">
-                {availableSquad.map(player => (
-                  <button key={player.id} type="button" className={`ticket-squad-player ${pickedNumber === player.id ? "picked" : ""} ${starters.includes(player.id) ? "in-xi" : ""}`}
+                {availableSquad.map(player => <div className="ticket-squad-row" key={player.id}>
+                  <button type="button" className={`ticket-squad-player ${pickedNumber === player.id ? "picked" : ""} ${starters.includes(player.id) ? "in-xi" : ""}`}
                     draggable onDragStart={event => { event.dataTransfer.setData("text/plain", player.id); setDraggedNumber(player.id); }}
                     onClick={() => handleBenchClick(player.id)}>
                     <span className="ticket-green-number">{player.number}</span>
-                    <span className="ticket-squad-name">{player.name}<small>{player.role} · {starters.includes(player.id) ? "STARTING XI" : "AVAILABLE"}</small></span>
+                    <span className="ticket-squad-name">{player.name}<small>{player.role} · {starters.includes(player.id) ? "STARTING XI" : "SUBSTITUTE"}</small></span>
                   </button>
-                ))}
+                  {!started && !starters.includes(player.id) && <button className="release-player" type="button" aria-label={`Release ${player.name}`} onClick={() => releaseSquadPlayer(player.id)}>Release</button>}
+                </div>)}
               </div>
-              <PlayerDatabase players={databasePlayers} query={playerQuery} setQuery={setPlayerQuery}
-                loading={databaseLoading} error={csvError} onSelect={addDatabasePlayer} />
+              <PlayerDatabase players={allDatabasePlayers}
+                query={playerQuery} setQuery={setPlayerQuery} loading={databaseLoading}
+                error={csvError} onSelect={addDatabasePlayer}
+                statsBombLoading={statsBombLoading} statsBombProgress={statsBombProgress} statsBombError={statsBombError} />
               <button className="primary-button" disabled={!canKickoff} onClick={beginMatch}><Play size={16}/> Start Match</button>
             </div>
           ) : (
@@ -501,6 +639,8 @@ export default function App() {
               <div className="ticket-divider" aria-hidden="true" />
               <div className="match-controls">
                 {!finished && !halftime && <button className="manager-instructions-button" type="button" disabled={Boolean(pendingDecision) || paused} onClick={giveInstructions}>Give instructions</button>}
+                {!finished && !halftime && <button className="secondary-button" type="button" disabled={Boolean(pendingDecision) || paused}
+                  onClick={() => setShowPlayerInstruction(true)}>{playerMarking ? `Mark ${playerMarking.targetName}` : "Mark an opponent"}</button>}
                 {halftime ? <HalfTimePanel {...{ homeScore, awayScore, feed, tactic, onTactic: halftimeTactic, onResume: resumeSecondHalf }} /> : pendingDecision ? (
                   <p className="current-tactic">Decision in progress · match clock stopped</p>
                 ) : !finished ? (
@@ -519,13 +659,15 @@ export default function App() {
       </div>
 
       {pendingDecision && !showSubstitution && <MatchDialog title={pendingDecision.title} label="BIG DECISION">
-        <p className="decision-context">{pendingDecision.clockLabel} · Real Madrid {homeScore} – {awayScore} {opponent}</p>
+        <p className="decision-context">{pendingDecision.clockLabel} · {matchTeams?.home.name || homeTeamName} {homeScore} – {awayScore} {opponent}</p>
         <p>{pendingDecision.text}</p>
         <p className="decision-deadline" role="status">{matchRules.timedDecisions ? (paused ? "Decision timer paused" : "Decide in " + Math.ceil(timer.remaining / 1000) + "s") : "Match paused · take your time"}</p>
         <div className="decision-choices">{pendingDecision.choices.map(choice => <button key={choice.label} className="choice-button" onClick={() => chooseDecision(choice)}>{choice.label}<small>{choice.note}</small></button>)}</div>
       </MatchDialog>}
+      {showPlayerInstruction && started && matchTeams && <PlayerInstructionModal home={matchTeams.home} away={matchTeams.away}
+        current={playerMarking} onClose={() => setShowPlayerInstruction(false)} onConfirm={confirmPlayerInstruction} />}
       {finished && !resultDismissed && <MatchDialog title={timeline.phase === "abandoned" ? "Match abandoned" : homeScore > awayScore ? "Victory!" : homeScore < awayScore ? "A tough defeat" : "Honours even"} label="FULL TIME" onClose={() => setResultDismissed(true)}>
-        <div className={"result-score " + (homeScore > awayScore ? "won" : homeScore < awayScore ? "lost" : "drawn")}><span>Real Madrid</span><strong>{homeScore} – {awayScore}</strong><span>{opponent}</span></div>
+        <div className={"result-score " + (homeScore > awayScore ? "won" : homeScore < awayScore ? "lost" : "drawn")}><span>{matchTeams?.home.name || homeTeamName}</span><strong>{homeScore} – {awayScore}</strong><span>{opponent}</span></div>
         <p>{timeline.phase === "abandoned" ? "The match was stopped. No completed result was saved." : homeScore > awayScore ? "Job done. Your team delivered when it mattered." : homeScore < awayScore ? "A result to learn from. Regroup and come back stronger." : "A hard-fought draw. There is more to build on."}</p>
         <p>{timeline.phase !== "abandoned" && (localSaved ? "Saved to your manager career on this device." : "Device save unavailable. Open Account to save to the cloud.")}</p>
         <button className="primary-button" onClick={() => setResultDismissed(true)}>Review match</button>
@@ -534,10 +676,19 @@ export default function App() {
       {accountPanel}
       {showSubstitution && started && matchTeams && <SubstitutionModal active={activePlayers(matchTeams.home)} bench={bench}
         initialOff={substitutionOff} used={substitutions.length} limit={matchRules.substitutionLimit} onClose={() => setShowSubstitution(false)} onConfirm={confirmSubstitution} />}
-      {infoPanel && <CareerPage {...{ infoPanel, setInfoPanel, career, selectedHistory, setSelectedHistory, wins, draws, losses, winRate, availableSquad, starters, formation, settings, setSettings, started, onRestart: openMatchSetup, onMenu: () => { setInfoPanel(null); setScreen("welcome"); setPaused(true); }, onAccount: () => { setInfoPanel(null); setShowAccount(true); } }} />}
+      {infoPanel && <CareerPage {...{ infoPanel, setInfoPanel, career, selectedHistory, setSelectedHistory, wins, draws, losses, winRate, settings, setSettings, started, onRestart: openMatchSetup, onMenu: () => { setInfoPanel(null); setScreen("welcome"); setPaused(true); }, onAccount: () => { setInfoPanel(null); setShowAccount(true); } }} />}
 
-      {showSetup && <MatchSetup opponent={draftOpponent} setOpponent={setDraftOpponent} players={databasePlayers}
-        season={draftSeason} setSeason={setDraftSeason} loading={databaseLoading} started={started && !finished} onClose={() => setShowSetup(false)} onConfirm={prepareMatch} />}
+      {showGameMode && <GameModeModal
+        signedIn={Boolean(accountId)}
+        onSinglePlayer={() => { setShowGameMode(false); setShowSetup(true); }}
+        onMultiplayer={() => { setShowGameMode(false); setShowOnlineMatch(true); }}
+        onRequireAccount={() => { setShowGameMode(false); setShowAccount(true); }}
+        onClose={() => { setShowGameMode(false); setShowSetup(false);  }} />}
+      <OnlineMatchPanel open={showOnlineMatch} onClose={() => setShowOnlineMatch(false)}
+        uid={accountId} managerName={career.managerName} players={allDatabasePlayers} clubs={uclClubs} />
+      {showSetup && !showGameMode && <MatchSetup homeTeam={draftHomeClub} setHomeTeam={setDraftHomeClub}
+        opponent={draftOpponent} setOpponent={setDraftOpponent} players={allDatabasePlayers} clubs={uclClubs}
+        loading={databaseLoading} error={csvError} started={started && !finished} onClose={() => setShowSetup(false)} onConfirm={prepareMatch} />}
 
     </div>
   );

@@ -12,7 +12,7 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-// Load all leagues. We won't remove Milan, Schalke, etc.
+// Load the local source; the combined database filters it to Champions League clubs.
 export async function loadPlayers() {
   const response = await fetch(`${import.meta.env?.BASE_URL ?? "/"}data/players.csv`);
 

@@ -59,6 +59,12 @@ test('management prompts happen without opposition shots and respond to misses a
   assert.equal(shouldOfferDecision(8, 0, []), true);
   assert.equal(shouldOfferDecision(6, 0, [{ kind: 'goal' }]), true);
   assert.equal(shouldOfferDecision(4, 0, [{ kind: 'goal' }]), false);
+  assert.equal(shouldOfferDecision(6, 0, [], () => 0), true);
+  assert.equal(shouldOfferDecision(6, 0, [], () => .99), false);
+  const playerPrompt = managementSituation({ home, events: [], context, recentTypes: ['stalled-attack'], random: () => 0 });
+  const variedPrompt = managementSituation({ home, events: [], context, recentTypes: ['stalled-attack'], random: () => .99 });
+  assert.notEqual(playerPrompt.type, variedPrompt.type);
+  assert.ok(playerPrompt.choices.every(choice => choice.targetId));
 });
 
 test('patient instructions affect actual buildup outcomes and conversion probability', () => {
@@ -69,6 +75,39 @@ test('patient instructions affect actual buildup outcomes and conversion probabi
   const normalShot = simulateStep({ home, away, minute: 0, stepMinutes: 1, random: () => 0 }).events.find(event => event.side === 'home');
   const patientShot = simulateStep({ home, away, minute: 0, stepMinutes: 1, random: () => 0, tactic: 'patient' }).events.find(event => event.side === 'home');
   assert.ok(patientShot.scoringProbability > normalShot.scoringProbability);
+});
+
+test('online team tactics affect only the team whose manager chose them', () => {
+  const homePatient = simulateStep({ home, away, minute: 2, stepMinutes: 1, random: () => .25,
+    homeTactic: 'patient', awayTactic: 'balanced' });
+  const homeBalanced = simulateStep({ home, away, minute: 2, stepMinutes: 1, random: () => .25,
+    homeTactic: 'balanced', awayTactic: 'patient' });
+  assert.equal(homePatient.events.find(event => event.side === 'home').outcome, 'crowded-out');
+  assert.equal(homeBalanced.events.find(event => event.side === 'home').outcome, 'intercepted');
+
+  const awayRolls = [0.25, 0.25, 0.25, 0.25, 0.8, 0.25, 0.25, 0.25, 0.25];
+  const awayPatient = simulateStep({ home, away, minute: 2, stepMinutes: 1,
+    random: () => awayRolls.shift() ?? 0.25, homeTactic: 'balanced', awayTactic: 'patient' });
+  const awayBalancedRolls = [0.25, 0.25, 0.25, 0.25, 0.8, 0.25, 0.25, 0.25, 0.25];
+  const awayBalanced = simulateStep({ home, away, minute: 2, stepMinutes: 1,
+    random: () => awayBalancedRolls.shift() ?? 0.25, homeTactic: 'patient', awayTactic: 'balanced' });
+  assert.equal(awayPatient.events.find(event => event.side === 'away').outcome, 'crowded-out');
+  assert.equal(awayBalanced.events.find(event => event.side === 'away').outcome, 'intercepted');
+});
+
+test('marking an opponent reduces their modeled shots and makes their attacking links easier to disrupt', () => {
+  const marking = { markerId: 'home-1', targetId: 'away-1' };
+  function targetShots(instruction) {
+    let seed = 5391;
+    const random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296);
+    let count = 0;
+    for (let index = 0; index < 3000; index++) {
+      count += simulateStep({ home, away, minute: 0, stepMinutes: 1, marking: instruction, random })
+        .events.filter(event => event.side === 'away' && event.playerId === 'away-1').length;
+    }
+    return count;
+  }
+  assert.ok(targetShots(marking) < targetShots(null));
 });
 
 test('buildup animation ends at the involved defender, not the goal', () => {

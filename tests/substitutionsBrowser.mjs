@@ -13,6 +13,7 @@ async function start(options) {
   const page = await context.newPage();
   await page.goto(base);
   await page.getByRole('button', { name: 'Continue Career', exact: true }).click();
+  await page.getByRole('button', { name: 'Match setup', exact: true }).click();
   await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
   await page.locator('.prematch-panel .primary-button').click();
   return { page, context };
@@ -65,7 +66,7 @@ try {
   assert.ok(match.finalXI.some(player => player.id === 'rm-6'));
   assert.equal(match.finalXI.length, 11);
   assert.equal(match.matchRules.substitutionLimit, 5);
-  await page.getByRole('button', { name: 'Squad', exact: true }).click();
+  await page.getByRole('button', { name: 'Manager Career', exact: true }).click();
   assert.match(await page.locator('.career-modal').innerText(), /Camavinga/);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Match setup', exact: true }).click();

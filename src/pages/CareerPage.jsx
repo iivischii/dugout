@@ -3,13 +3,13 @@ import SquadUsage from "./SquadUsage";
 import ManagerProfile from "./ManagerProfile";
 import { X } from "lucide-react";
 import { reviewMatch } from "../data/career";
-export default function CareerPage({ infoPanel, setInfoPanel, career, selectedHistory, setSelectedHistory, wins, draws, losses, winRate, availableSquad, starters, formation, settings, setSettings, started, onRestart, onMenu, onAccount }) {
+export default function CareerPage({ infoPanel, setInfoPanel, career, selectedHistory, setSelectedHistory, wins, draws, losses, winRate, settings, setSettings, started, onRestart, onMenu, onAccount }) {
  return (
 <div className="modal-overlay" onClick={() => setInfoPanel(null)}>
           <div className="setup-modal career-modal" onClick={event => event.stopPropagation()}>
             <button className="close-modal" onClick={() => setInfoPanel(null)} aria-label="Close"><X size={20}/></button>
             <p className="eyebrow">THE DUGOUT · MANAGER CAREER</p>
-            <h2>{({ profile: "Manager Profile", matches: "Match Calendar", squad: "Squad", competitions: "Managerial Record", settings: "Settings" })[infoPanel]}</h2>
+            <h2>{({ profile: "Manager Profile", matches: "Match Calendar", competitions: "Manager Career", settings: "Settings" })[infoPanel]}</h2>
             {infoPanel === "matches" && (
               <div className="career-section">
                 {career.matches.length === 0 ? <p>No completed matches yet. Finish a 90-minute match to add it here.</p> : (
@@ -17,7 +17,7 @@ export default function CareerPage({ infoPanel, setInfoPanel, career, selectedHi
                     <p>{career.matches.length} completed matches · newest first</p>
                     {career.matches.map(match => <button key={match.id} className="history-row" onClick={() => setSelectedHistory(selectedHistory === match.id ? null : match.id)}>
                       <span className={`result-pill result-${match.result}`}>{match.result}</span>
-                      <span><strong>Real Madrid {match.goalsFor}–{match.goalsAgainst} {match.opponent}</strong><small>{new Date(match.date).toLocaleString()} · {match.formation}</small></span>
+                      <span><strong>{match.homeTeam || "Real Madrid"} {match.goalsFor}–{match.goalsAgainst} {match.opponent}</strong><small>{new Date(match.date).toLocaleString()} · {match.formation}</small></span>
                     </button>)}
                     {career.matches.filter(m => m.id === selectedHistory).map(match => <div key={match.id} className="career-detail">
                       <h3>Match review</h3>
@@ -51,12 +51,10 @@ export default function CareerPage({ infoPanel, setInfoPanel, career, selectedHi
               <div className="win-bar"><div style={{width:`${winRate}%`}} /></div>
               <h3>Performance reviews</h3>
               {career.matches.length ? career.matches.slice(0,5).map(match => <div key={match.id} className="career-detail"><strong>{match.result} · {match.opponent} · {match.goalsFor}–{match.goalsAgainst}</strong>{reviewMatch(match).map((note,i) => <p key={i}>{note}</p>)}</div>) : <p>Complete a match to see your record and improvement notes.</p>}
+              <h3>Squad stats</h3>
+              <SquadUsage career={career} />
             </div>}
             {infoPanel === "profile" && <ManagerProfile career={career} />}
-            {infoPanel === "squad" && <>
-              <p>{availableSquad.length} squad players / {starters.length} starters / Formation {formation}</p>
-              <SquadUsage career={career} />
-            </>}
             {infoPanel === "settings" && <SettingsPage {...{ settings, setSettings, started, onRestart, onMenu, onAccount }} />}
 
           </div>

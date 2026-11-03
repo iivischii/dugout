@@ -58,7 +58,10 @@ button:focus-visible, select:focus-visible { outline: 2px solid #f07c72; outline
 .feed-minute { display: block; font-size: 13px; font-weight: 800; color: #ffafa2; margin-bottom: 9px; }
 .feed-event p { margin: 0; color: #fff; font-size: clamp(17px,1.55vw,24px); font-weight: 600; line-height: 1.38; }
 .feed-event h3 { font-size: 20px; margin: 0 0 8px; color: #fff; }
-.feed-event.goal p { color: #ffe4a6; }
+.feed-event.home p { color: #8fe0b0; }
+.feed-event.away p { color: #fff; }
+.feed-event.home.goal p { color: #f3cb62; }
+.feed-event.away.goal p { color: #f07c72; }
 .feed-event.choice { background: rgba(20,20,20,.16); margin: 0 -10px; padding: 16px 10px; border-radius: 10px; }
 .feed-event.choice p { font-size: 14px; font-weight: 400; }
 .feed-event.choice h3 { font-size: 17px; color: #ffe1db; }
@@ -180,9 +183,12 @@ button:focus-visible, select:focus-visible { outline: 2px solid #f07c72; outline
 .prematch-panel .primary-button { position: sticky; bottom: 0; flex-shrink: 0; margin-top: 12px; box-shadow: 0 -12px 22px #555558; }
 .lineup-help { font-size: 12px; margin: 5px 0 8px; line-height: 1.4; }
 .ticket-squad-list { display: grid; grid-template-columns: 1fr; gap: 5px; min-height: 100px; flex: 0 0 auto; }
-.ticket-squad-player { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 6px 8px; border: 1px solid #77777b; border-radius: 10px; background: #414145; color: white; }
+.ticket-squad-row { display: flex; align-items: stretch; gap: 5px; min-width: 0; }
+.ticket-squad-player { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; text-align: left; padding: 6px 8px; border: 1px solid #77777b; border-radius: 10px; background: #414145; color: white; }
 .ticket-squad-player.in-xi { border-color: #8dbba0; }
 .ticket-squad-player.picked { outline: 2px solid #f7b0a6; background: #333638; }
+.release-player { flex: 0 0 auto; padding: 0 8px; border: 1px solid #76767b; border-radius: 8px; background: #333338; color: #ddd; font-size: 10px; }
+.release-player:hover { border-color: #f07c72; color: #fff; }
 .ticket-green-number { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border-radius: 50%; background: #087b49; border: 1px solid #83c6a4; color: #fff; font-size: 11px; font-weight: 800; }
 .ticket-squad-name { display: flex; flex-direction: column; gap: 3px; font-weight: 700; font-size: 12px; }
 .ticket-squad-name small { font-size: 9px; font-weight: 500; color: #ddd; letter-spacing: .7px; }
@@ -221,6 +227,14 @@ input:focus-visible { outline: 2px solid #f07c72; outline-offset: 2px; }
 .usage-list li { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; padding: 10px; border-radius: 8px; background: #37373b; font-size: 13px; }
 .usage-list li span { overflow-wrap: anywhere; }
 .usage-list li strong { flex-shrink: 0; color: #f6afa4; }
+.online-match-modal { max-height: min(90dvh, 760px); overflow-y: auto; }
+.online-match-status, .online-your-team { color: #ddd; }
+.online-score { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 14px; border-radius: 10px; background: #292a2e; text-align: center; }
+.online-score strong { overflow-wrap: anywhere; }
+.online-score b { font-size: 24px; color: #c8d89d; white-space: nowrap; }
+.online-score small { grid-column: 1 / -1; color: #ddd; }
+.online-events { max-height: 220px; overflow-y: auto; margin-top: 14px; padding: 8px 12px; border-radius: 10px; background: #292a2e; }
+.online-events p { margin: 8px 0; font-size: 13px; overflow-wrap: anywhere; }
 .save-confirmation { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 15px; margin: 16px 0; border: 1px solid #83c6a4; border-radius: 12px; background: #17392b; color: #c5f3d7; }
 .save-confirmation > div { flex: 1; min-width: 150px; }
 .save-confirmation p { color: #d1eddb; margin: 6px 0 0; }
@@ -266,6 +280,10 @@ input:focus-visible { outline: 2px solid #f07c72; outline-offset: 2px; }
 .manager-bar strong { display: block; font-size: 15px; }
 .manager-bar small { display: block; margin-top: 5px; color: #bdc5c1; font-size: 11px; line-height: 1.4; }
 .manager-bar button { display: flex; align-items: center; gap: 10px; text-align: left; padding: 9px 12px; color: #fff; background: #333438; border: 1px solid #55565b; border-radius: 10px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.game-mode-modal .mode-choice { display: flex; align-items: center; gap: 14px; width: 100%; margin-top: 12px; padding: 16px; border: 1px solid #77777b; border-radius: 12px; background: #343438; color: #fff; text-align: left; }
+.game-mode-modal .mode-choice:hover { border-color: #8dbba0; background: #2d3531; }
+.mode-choice span { display: flex; flex-direction: column; gap: 5px; }
+.mode-choice small { color: #c9c9ce; }
 .decision-panel { background: #303236; border: 1px solid #494b51; }
 .match-feed-header { padding: 20px 24px 16px; border-color: #494b51; }
 .match-feed { padding: 8px 24px 20px; }
@@ -342,6 +360,9 @@ input:focus-visible { outline: 2px solid #f07c72; outline-offset: 2px; }
 .console-account summary i { position: absolute; bottom: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; }
 .device-saved { background: #83c6a4; }.device-unsaved { background: #f07c72; }
 .console-account .manager-bar { position: absolute; z-index: 7; left: calc(100% + 12px); bottom: 0; width: 280px; display: flex; flex-direction: column; align-items: stretch; padding: 18px; border: 1px solid #55565b; border-radius: 14px; box-shadow: 0 12px 40px #0008; }
+.sidebar-logout { align-self: flex-start; margin-top: 8px; padding: 5px 9px; border: 1px solid #6c6d72; border-radius: 8px; background: transparent; color: #ddd; font-size: 11px; }
+.sidebar-logout:hover { border-color: #e78d79; color: #fff; }
+.sidebar-logout:disabled { opacity: .6; cursor: wait; }
 @media (max-width: 850px) {
   .game-shell { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
   .sidebar { position: fixed; inset: auto 0 0; width: 100%; z-index: 6; min-height: 60px; margin: 0; padding: 8px 8px max(8px, env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px #0005; }

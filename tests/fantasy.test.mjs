@@ -2,29 +2,50 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import Papa from 'papaparse';
-import { buildOpponent, legends, datasetTeams } from '../src/data/fantasyTeams.js';
+import { buildOpponent, buildRandomTeam, datasetTeams, MAX_SQUAD_SIZE } from '../src/data/fantasyTeams.js';
+import { FALLBACK_UCL_CLUBS, filterChampionsLeaguePlayers } from '../src/data/championsLeague.js';
 import { attackProfile, per90, simulateStep, decisionFromEvents } from '../src/match-engine/simulation.js';
 
 const csv = Papa.parse(await readFile(new URL('../public/data/players.csv', import.meta.url), 'utf8'), { header: true, skipEmptyLines: true }).data;
 const players = csv.map(row => ({ id: row.id, name: row.player_name, team: row.team_title, season: row.season, position: row.primary_position,
   stats: { minutes: Number(row.time), shots: Number(row.shots), goals: Number(row.goals), xG: Number(row.xG), keyPasses: Number(row.key_passes) } }));
 
-test('all dataset clubs are selectable and historical seasons retain their records', () => {
-  for (const club of datasetTeams(players)) {
-    const team = buildOpponent(players, club);
+test('only Champions League clubs are selectable and historical seasons retain their records', () => {
+  const uclPlayers = filterChampionsLeaguePlayers(players, FALLBACK_UCL_CLUBS);
+  const teams = datasetTeams(uclPlayers, FALLBACK_UCL_CLUBS);
+  assert.ok(teams.includes('Valencia'));
+  assert.ok(!teams.includes('Alaves'));
+  for (const club of teams.filter(name => name !== 'Real Madrid')) {
+    const team = buildOpponent(uclPlayers, club);
     assert.ok(team, club);
     assert.equal(team.players.length, 11);
     assert.equal(new Set(team.players.filter(Boolean).map(player => player.id)).size, team.players.filter(Boolean).length);
     assert.ok(team.players.filter(Boolean).every(player => player.season === team.season));
   }
-  const msn = buildOpponent(players, 'Barcelona', '2014/15');
+  const msn = buildOpponent(uclPlayers, 'Barcelona', '2014/15');
   assert.deepEqual(msn.players.slice(-3).map(player => player.name).sort(), ['Neymar', 'Lionel Messi', 'Luis Suárez'].sort());
   assert.equal(msn.players.find(player => player.name === 'Lionel Messi').stats.goals, 43);
   assert.equal(msn.players.find(player => player.name === 'Luis Suárez').stats.minutes, 2182);
   assert.equal(buildOpponent([], 'Barcelona', '2014/15'), null);
-  assert.equal(legends[0].name, 'Zinedine Zidane');
-  assert.deepEqual(legends[0].stats, {});
-  assert.equal(attackProfile(legends[0]).hasSeasonData, false);
+  const madrid = buildOpponent(uclPlayers, 'Real Madrid');
+  assert.equal(madrid.season, '2026/27');
+  assert.equal(madrid.formation, '4-3-3');
+  assert.equal(madrid.roster.length, MAX_SQUAD_SIZE);
+  assert.equal(madrid.players[0].name, 'Courtois');
+  assert.equal(madrid.players[1].name, 'Á. Carreras');
+});
+
+test('random custom teams use unique database players and fill a balanced XI', () => {
+  const team = buildRandomTeam(players, () => 0.5);
+  assert.equal(team.name, 'Random XI');
+  assert.equal(team.players.length, 11);
+  assert.equal(new Set(team.players.map(player => player.name)).size, 11);
+  assert.equal(team.players.filter(player => player.role === 'GK').length, 1);
+  assert.equal(team.players.filter(player => player.role === 'D').length, 4);
+  assert.equal(team.players.filter(player => player.role === 'M').length, 3);
+  assert.equal(team.players.filter(player => player.role === 'F').length, 3);
+  assert.equal(team.roster.length, MAX_SQUAD_SIZE);
+  assert.equal(buildRandomTeam([]), null);
 });
 
 test('model normalizes minutes, treats missing data honestly, and limits small-sample extremes', () => {

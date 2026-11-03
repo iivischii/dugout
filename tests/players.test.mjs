@@ -31,7 +31,8 @@ test('actual CSV supports Haaland, combined filters, and historical season selec
     assert.equal(new Set(defaultLineup).size, 11);
     assert.ok(defaultLineup.every(number => squad.some(player => player.number === number)));
     assert.ok(Object.values(formations).every(slots => slots.length === 11));
-    assert.ok(!squad.some(player => /Haaland|Trent/i.test(player.name)));
+    assert.ok(squad.some(player => /Trent/i.test(player.name)));
+    assert.equal(squad.length, 16);
   } finally { globalThis.fetch = originalFetch; }
 });
 

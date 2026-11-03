@@ -14,7 +14,14 @@ async function setup(options) {
   await page.getByRole('button', { name: 'Create Manager', exact: true }).click();
   await page.getByLabel('Manager name', { exact: true }).fill('Test Manager');
   await page.getByRole('button', { name: 'Begin Career', exact: true }).click();
+  assert.equal(await page.getByRole('heading', { name: 'How do you want to play?' }).count(), 0);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await page.getByRole('button', { name: /Multiplayer/ }).click();
+  await page.getByRole('heading', { name: 'Online play is coming soon' }).waitFor();
+  await page.getByRole('button', { name: 'Back to game modes', exact: true }).click();
+  await page.getByRole('button', { name: /Single player/ }).click();
   await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: "You can't add anyone else until you release a substitute." }).waitFor();
   return { page, context };
 }
 async function finishManual(page) {
@@ -36,6 +43,7 @@ try {
   const { page, context } = await setup({ viewport: { width: 1366, height: 768 } });
   assert.equal(await page.locator('.player-marker').count(), 11);
   assert.equal(await page.locator('.player-name').count(), 0);
+  assert.equal(await page.locator('.ticket-squad-player').count(), 16);
   // A bench player replaces a starter, and the XI remains unique.
   await page.locator('.ticket-squad-player').filter({ hasText: 'Camavinga' }).click();
   await page.locator('.player-marker').nth(6).click();
@@ -51,24 +59,29 @@ try {
   assert.equal(await page.locator('.ticket-squad-player.in-xi').count(), 11);
   // Search results must be visible without manually scrolling after typing.
   await page.locator('.player-marker').nth(10).click();
-  await page.locator('#database-search').fill(' Haaland ');
+  await page.locator('#database-search').fill(' Haaland Manchester City ');
   await page.locator('.database-result').first().waitFor();
-  assert.equal(await page.locator('.database-result').count(), 6);
+  await page.locator('.database-result').first().click();
+  await page.getByRole('alert').filter({ hasText: 'Your squad is full (16 players)' }).waitFor();
+  assert.equal(await page.locator('.ticket-squad-player').count(), 16);
+  await page.getByRole('button', { name: 'Release Arda Güler' }).click();
+  assert.equal(await page.locator('.database-result').count(), 1);
   const resultBox = await page.locator('.database-result').first().boundingBox();
   const panelBox = await page.locator('.decision-panel').boundingBox();
   assert.ok(resultBox.y >= panelBox.y && resultBox.y + resultBox.height < panelBox.y + panelBox.height);
-  await page.locator('.database-result').filter({ hasText: '2022/23' }).click();
+  await page.locator('.database-result').first().click();
   assert.match(await page.locator('.player-marker').nth(10).getAttribute('title'), /Haaland/);
+  assert.equal(await page.locator('.ticket-squad-player').count(), 16);
   assert.equal(await page.locator('.ticket-squad-player.in-xi').count(), 11);
   await page.locator('.player-marker').nth(10).click();
-  assert.match(await page.locator('.pitch-player-card').innerText(), /2022\/23/);
-  assert.match(await page.locator('.pitch-player-card').innerText(), /36 goals/);
+  assert.match(await page.locator('.pitch-player-card').innerText(), /2024\/25/);
+  assert.match(await page.locator('.pitch-player-card').innerText(), /22 goals/);
   await page.getByRole('button', { name: 'Close player details' }).click();
-  await page.locator('#database-search').fill('Haaland 2023/24');
+  await page.locator('#database-search').fill('Haaland Manchester City');
   await page.locator('.database-result').first().click();
   assert.equal(await page.locator('.ticket-squad-player').filter({ hasText: 'Haaland' }).count(), 1);
   await page.locator('.player-marker').nth(10).click();
-  assert.match(await page.locator('.pitch-player-card').innerText(), /27 goals/);
+  assert.match(await page.locator('.pitch-player-card').innerText(), /22 goals/);
   await page.getByRole('button', { name: 'Close player details' }).click();
   await page.locator('#database-search').fill('no-such-player-123');
   await page.getByText('No matching players found.', { exact: true }).waitFor();
@@ -91,17 +104,30 @@ try {
   assert.equal(saved.matches[0].matchStats.homeShots, saved.matches[0].events.filter(event => event.side === 'home' && ['shot', 'goal'].includes(event.kind)).length);
   await noHorizontalOverflow(page);
   assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight));
-  for (const [name, title] of [['Matches', 'Match Calendar'], ['Competitions', 'Managerial Record'], ['Squad', 'Squad'], ['Settings', 'Settings']]) {
+  for (const [name, title] of [['Matches', 'Match Calendar'], ['Manager Career', 'Manager Career'], ['Settings', 'Settings']]) {
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name: title, exact: true }).waitFor();
+    if (name === 'Manager Career') {
+      assert.equal(await page.locator('.usage-list').count(), 3);
+      for (const list of await page.locator('.usage-list').all()) assert.ok(await list.locator('li').count() <= 5);
+    }
     if (name === 'Matches') {
       await page.locator('.history-row').click();
       await page.getByRole('heading', { name: 'Match timeline', exact: true }).waitFor();
     }
     await page.getByRole('button', { name: 'Close', exact: true }).click();
   }
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await page.getByRole('heading', { name: 'How do you want to play?' }).waitFor();
+  await page.getByRole('button', { name: /Multiplayer/ }).click();
+  await page.getByRole('heading', { name: 'Online play is coming soon' }).waitFor();
+  await page.getByRole('button', { name: 'Back to game modes', exact: true }).click();
+  await page.getByRole('button', { name: /Single player/ }).click();
+  await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.reload();
   await page.getByRole('button', { name: 'Continue Career', exact: true }).click();
+  await page.getByRole('button', { name: 'Match setup', exact: true }).click();
   await page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('dugout-career-v1')).matches.length), 1);
   await page.getByRole('button', { name: 'Manager Profile', exact: true }).click();
@@ -110,13 +136,14 @@ try {
   assert.equal(await page.locator('.career-modal input, .career-modal select, .career-modal textarea').count(), 0);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await context.close();
-  console.log('Desktop: clicks, swaps, drag/drop, formations, historical search, bench, completed-match saving and sidebar passed.');
+  console.log('Desktop: clicks, swaps, drag/drop, formations, squad cap, player search, bench, completed-match saving and sidebar passed.');
 
   const mobile = await setup({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await mobile.page.locator('.ticket-squad-player').filter({ hasText: 'Camavinga' }).tap();
   await mobile.page.locator('.player-marker').nth(6).tap();
   assert.match(await mobile.page.locator('.player-marker').nth(6).getAttribute('title'), /Camavinga/);
   await mobile.page.locator('.player-marker').nth(10).tap();
+  await mobile.page.getByRole('button', { name: 'Release Arda Güler' }).tap();
   await mobile.page.locator('#database-search').fill('Haaland');
   await mobile.page.locator('.database-result').first().tap();
   assert.match(await mobile.page.locator('.player-marker').nth(10).getAttribute('title'), /Haaland/);
@@ -133,7 +160,7 @@ try {
   await failure.getByRole('button', { name: 'Create Manager', exact: true }).click();
   await failure.getByLabel('Manager name', { exact: true }).fill('Error Test');
   await failure.getByRole('button', { name: 'Begin Career', exact: true }).click();
-  await failure.getByRole('button', { name: 'Choose Starting XI' }).click();
+  await failure.getByRole('button', { name: 'Match setup', exact: true }).click();
   await failure.getByText('Could not load the player database. Please reload to try again.', { exact: true }).waitFor();
   await failureContext.close();
   console.log('Database error state passed.');
@@ -154,6 +181,7 @@ try {
   assert.ok(await legacy.getByRole('button', { name: 'Begin Career', exact: true }).isDisabled());
   await legacy.getByLabel('Manager name', { exact: true }).fill('Alex');
   await legacy.getByRole('button', { name: 'Begin Career', exact: true }).tap();
+  await legacy.getByRole('button', { name: 'Match setup', exact: true }).tap();
   await legacy.getByRole('button', { name: 'Choose Starting XI', exact: true }).tap();
   await legacy.getByRole('button', { name: 'Manager Profile', exact: true }).tap();
   assert.equal(await legacy.locator('.manager-profile input, .manager-profile select').count(), 0);
@@ -193,8 +221,7 @@ try {
   await remix.page.getByRole('button', { name: 'Continue Match', exact: true }).click();
   await remix.page.getByRole('button', { name: 'Match setup', exact: true }).click();
   await remix.page.locator('#opponent').selectOption('Barcelona');
-  await remix.page.locator('#opponent-season').selectOption('2014/15');
-  await remix.page.locator('.opponent-preview').filter({ hasText: 'Luis Suárez' }).waitFor();
+  await remix.page.locator('.opponent-preview').filter({ hasText: 'Lamine Yamal' }).waitFor();
   await remix.page.getByRole('button', { name: 'Choose Starting XI', exact: true }).click();
   await remix.page.locator('.prematch-panel').waitFor();
   assert.equal(await remix.page.locator('.score-center small').innerText(), "0'");
@@ -202,12 +229,13 @@ try {
   await remix.page.getByRole('button', { name: 'Clear XI', exact: true }).click();
   assert.equal(await remix.page.locator('.empty-slot').count(), 11);
   assert.ok(await remix.page.locator('.prematch-panel .primary-button').isDisabled());
-  const names = ['Courtois', 'Fran García', 'Huijsen', 'Militão', 'Valverde', 'Tchouaméni', 'Bellingham', 'Vini Jr.', 'Modrić', 'Güler', 'Mbappé'];
+  const names = ['Courtois', 'Á. Carreras', 'Huijsen', 'Eder Militão', 'Trent', 'Tchouaméni', 'Bellingham', 'Valverde', 'Vinícius Júnior', 'Rodrygo', 'Mbappé'];
   for (const [index, name] of names.entries()) {
     await remix.page.locator('.ticket-squad-player').filter({ hasText: name }).click();
     await remix.page.locator('.player-marker').nth(index).click();
   }
   await remix.page.locator('.player-marker').nth(8).click();
+  await remix.page.getByRole('button', { name: 'Release Arda Güler' }).click();
   await remix.page.locator('#database-search').fill('Zinedine Zidane');
   await remix.page.locator('.database-result').filter({ hasText: 'Historical statistics are not available' }).click();
   assert.match(await remix.page.locator('.player-marker').nth(8).getAttribute('title'), /Zinedine Zidane/);
@@ -216,12 +244,11 @@ try {
   await finishManual(remix.page);
   const fantasySave = await remix.page.evaluate(() => JSON.parse(localStorage.getItem('dugout-career-v1')).matches[0]);
   assert.equal(fantasySave.opponent, 'Barcelona');
-  assert.equal(fantasySave.opponentSeason, '2014/15');
   assert.ok(fantasySave.startingXI.some(player => player.name === 'Zinedine Zidane'));
-  assert.ok(fantasySave.opponentXI.some(player => player.name === 'Lionel Messi'));
+  assert.ok(fantasySave.opponentXI.some(player => player.name === 'Lamine Yamal'));
   assert.equal(fantasySave.events.filter(event => event.kind === 'goal' && event.side === 'home').length, fantasySave.goalsFor);
   assert.equal(fantasySave.events.filter(event => event.kind === 'goal' && event.side === 'away').length, fantasySave.goalsAgainst);
   await remix.context.close();
-  console.log('New-match XI editing, clear/rebuild, Zidane legend disclosure, MSN historical opponent, and saved lineups passed.');
+  console.log('New-match XI editing, clear/rebuild, Zidane legend disclosure, Barcelona opponent, and saved lineups passed.');
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }

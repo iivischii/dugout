@@ -15,22 +15,22 @@ export default function WelcomePage({ career, onContinue, onCreate, onAccount, a
         <img className="welcome-brand" src={dugoutLogo} alt="The Dugout crest" />
         <p className="eyebrow">YOUR CLUB. YOUR DECISIONS. YOUR LEGACY.</p>
         <h1>THE<br /><span>DUGOUT</span></h1>
-        <p className="welcome-description">Every career starts on the touchline. Choose your XI, make the calls, and build your story one match at a time.</p>
+        <p className="welcome-description">Pick a club, choose your side, and make the calls from the touchline.</p>
         <div className="ticket-divider" aria-hidden="true" />
         {creating ? (
           <form onSubmit={event => { event.preventDefault(); if (name.trim()) onCreate(name.trim()); }}>
             <h2>Create your manager</h2>
-            <p className="welcome-description">Choose your name. Your record and managerial history will grow from the matches you play.</p>
+            <p className="welcome-description">Choose your name. Your record grows with every match.</p>
             <label htmlFor="new-manager-name">Manager name</label>
             <input id="new-manager-name" className="career-input" autoFocus required maxLength={60}
               value={name} onChange={event => setName(event.target.value)} autoComplete="name" placeholder="Your name on the touchline" />
-            <p className="welcome-note">Starting club · Real Madrid</p>
+            <p className="welcome-note">Choose your club before kickoff.</p>
             <button className="primary-button" disabled={!name.trim()} type="submit">Begin Career <ArrowRight size={16} /></button>
             <button className="secondary-button" type="button" onClick={() => setCreating(false)}>Back</button>
           </form>
         ) : (
           <>
-            {hasManager && <p className="welcome-returning">Welcome back, <strong>{career.managerName}</strong><small>Real Madrid · {career.matches.length} completed matches</small></p>}
+            {hasManager && <p className="welcome-returning">Welcome back, <strong>{career.managerName}</strong><small>{career.matches.length} completed matches</small></p>}
             <button className="primary-button" onClick={hasManager ? onContinue : () => setCreating(true)}>
               {hasManager ? "Continue Career" : "Create Manager"} <ArrowRight size={16} />
             </button>

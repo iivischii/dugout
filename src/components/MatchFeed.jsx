@@ -42,7 +42,8 @@ export default function MatchFeed({ events }) {
         following.current = atBottom;
         setBrowsing(!atBottom);
       }}>
-      {events.map((event, index) => <article ref={index === events.length - 1 ? latest : null} className={`feed-event ${event.kind}`} key={event.id}>
+      {events.map((event, index) => <article ref={index === events.length - 1 ? latest : null}
+        className={`feed-event ${event.kind}${event.side ? ` ${event.side}` : ""}`} key={event.id}>
         <span className="feed-minute">{event.clockLabel || event.minute + "'"}</span>
         {event.title && <h3>{event.title}</h3>}<p>{event.text}</p>
       </article>)}
