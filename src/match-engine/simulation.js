@@ -34,18 +34,26 @@ export function weightedPlayer(players, measure, random) {
   return players.find((player, index) => (roll -= weights[index]) < 0) || players.at(-1);
 }
 
-export function simulateStep({ home, away, minute, tactic = "balanced", homeTactic = tactic, awayTactic = tactic, targetId = null, marking = null, random = Math.random, stepMinutes = 5, endMinute = 90, recentEvents = [], score = { home: 0, away: 0 }, regulationStart = minute }) {
+export function simulateStep({ home, away, minute, tactic = "balanced", homeTactic = tactic, awayTactic = tactic, targetId = null, homeTargetId = targetId, awayTargetId = null, marking = null, homeMarking = marking, awayMarking = null, random = Math.random, stepMinutes = 5, endMinute = 90, recentEvents = [], score = { home: 0, away: 0 }, regulationStart = minute }) {
   const events = [];
   let teams = { home, away };
-  const markingActive = () => Boolean(marking && activePlayers(teams.home).some(player => player.id === marking.markerId)
-    && activePlayers(teams.away).some(player => player.id === marking.targetId));
+  const activeMarking = side => {
+    const instruction = side === "home" ? awayMarking : homeMarking;
+    const defending = side === "home" ? "away" : "home";
+    return instruction && activePlayers(teams[defending]).some(player => player.id === instruction.markerId)
+      && activePlayers(teams[side]).some(player => player.id === instruction.targetId) ? instruction : null;
+  };
   let homeGoal = 0, awayGoal = 0;
   const attack = (team, defending, side, atMinute) => {
     const sideTactic = side === "home" ? homeTactic : awayTactic;
+    const sideTargetId = side === "home" ? homeTargetId : awayTargetId;
+    const oppositionTactic = side === "home" ? awayTactic : homeTactic;
+    const oppositionTargetId = side === "home" ? awayTargetId : homeTargetId;
+    const markingInstruction = activeMarking(side);
     const profiles = new Map(team.players.map(player => [player.id, attackProfile(player)]));
     const weight = player => player.role === "GK" ? 0 : profiles.get(player.id).shots
-      * (side === "away" && sideTactic === "contain" && player.id === targetId ? .65 : 1)
-      * (side === "away" && markingActive() && player.id === marking.targetId ? .4 : 1);
+      * (oppositionTactic === "contain" && player.id === oppositionTargetId ? .65 : 1)
+      * (markingInstruction && player.id === markingInstruction.targetId ? .4 : 1);
     let total = team.players.reduce((sum, player) => sum + weight(player), 0);
     if (sideTactic === "allout") total *= side === "home" ? 1.2 : 1.15;
     if (sideTactic === "contain") total *= .9;
@@ -60,7 +68,8 @@ export function simulateStep({ home, away, minute, tactic = "balanced", homeTact
     if (random() >= 1 - Math.exp(-total / 90)) return;
     const shooter = weightedPlayer(team.players, weight, random);
     const others = team.players.filter(player => player.id !== shooter.id && player.role !== "GK");
-    const creator = weightedPlayer(others, player => profiles.get(player.id).creation * (side === "away" && sideTactic === "cutservice" && player.id === targetId ? .5 : sideTactic === "playmaker" && player.id === targetId ? 1.6 : 1), random);
+    const creator = weightedPlayer(others, player => profiles.get(player.id).creation
+      * (oppositionTactic === "cutservice" && player.id === oppositionTargetId ? .5 : sideTactic === "playmaker" && player.id === sideTargetId ? 1.6 : 1), random);
     const conversion = clamp(profiles.get(shooter.id).conversion * (sideTactic === "patient" ? 1.12 : 1), 0, .6);
     const goal = random() < conversion;
     const outcome = goal ? "goal" : random() < .5 ? "saved" : "wide";
@@ -101,19 +110,21 @@ export function simulateStep({ home, away, minute, tactic = "balanced", homeTact
     const other = side === "home" ? "away" : "home";
     const opposition = { ...teams[other], players: activePlayers(teams[other]) };
     const outfield = team.players.filter(player => player.role !== "GK");
-    const passer = weightedPlayer(outfield, player => attackProfile(player).creation * (sideTactic === "playmaker" && player.id === targetId ? 1.6 : 1), random);
+    const sideTargetId = side === "home" ? homeTargetId : awayTargetId;
+    const passer = weightedPlayer(outfield, player => attackProfile(player).creation * (sideTactic === "playmaker" && player.id === sideTargetId ? 1.6 : 1), random);
     const receiver = weightedPlayer(outfield.filter(player => player.id !== passer.id), player => attackProfile(player).creation + attackProfile(player).shots, random);
     const defenders = opposition.players.filter(player => ["CB", "LB", "RB", "CDM", "LWB", "RWB"].includes(player.role));
     const defender = defenders[Math.min(defenders.length - 1, Math.floor(random() * defenders.length))] || opposition.players[1];
     const roll = random();
-    const watched = side === "away" && markingActive() && [passer.id, receiver.id].includes(marking.targetId);
+    const markingInstruction = activeMarking(side);
+    const watched = markingInstruction && [passer.id, receiver.id].includes(markingInstruction.targetId);
     const lossChance = Math.min(.9, (sideTactic === "patient" ? .2 : .35) + (watched ? .18 : 0));
     const outcome = roll < lossChance ? "intercepted" : roll < .65 ? "crowded-out" : "recycled";
     const commentary = buildUpCommentary({ side, passer, receiver, defender, outcome }, team, opposition, [...recentEvents, ...events], random);
     events.push({ id: crypto.randomUUID(), minute: atMinute, kind: "buildup", side, outcome, ...commentary,
       creatorId: passer.id, creatorName: passer.name, playerId: receiver.id, playerName: receiver.name,
       opponentPlayerId: defender.id, opponentPlayerName: defender.name,
-      ...(watched ? { markingPlayerId: marking.markerId, markedPlayerId: marking.targetId } : {}) });
+      ...(watched ? { markingPlayerId: markingInstruction.markerId, markedPlayerId: markingInstruction.targetId } : {}) });
   };
   for (let atMinute = minute + 1; atMinute <= Math.min(minute + stepMinutes, endMinute); atMinute++) {
     const refereeing = refereeStep(teams, atMinute, { tactic, targetId, random, score: { home: score.home + homeGoal, away: score.away + awayGoal }, regulationMinute: Math.min(90, regulationStart + atMinute - minute) });

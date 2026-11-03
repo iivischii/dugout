@@ -2,6 +2,8 @@ import { doc, getDoc, runTransaction, setDoc } from "firebase/firestore/lite";
 import { db } from "./firebase";
 import { simulateStep } from "../match-engine/simulation";
 import { matchMinute, phaseBoundary, progressPhase } from "../match-engine/phases";
+import { managementSituation, shouldOfferDecision } from "../match-engine/management";
+import { activePlayers } from "../match-engine/referee";
 
 const roomRef = code => doc(db, "onlineMatches", code);
 const roomCode = () => {
@@ -26,6 +28,8 @@ export async function createOnlineRoom({ uid, name, home }) {
     home: JSON.parse(JSON.stringify(home)), away: null, status: "waiting", turnUid: uid,
     minute: 0, phase: { phase: "first-half", firstAdded: 0, secondAdded: 0, halfTimeAt: null },
     scoreHome: 0, scoreAway: 0, homeTactic: "balanced", awayTactic: "balanced",
+    homeTargetId: null, awayTargetId: null, homeMarking: null, awayMarking: null,
+    pendingDecision: null, decisionTypes: [], lastManagementMinute: 0,
     events: [{ id: `kickoff-${code}`, minute: 0, kind: "info", text: "Room created. Waiting for the other manager." }],
     revision: 0, createdAt: Date.now(), updatedAt: Date.now(),
   };
@@ -65,16 +69,22 @@ export async function readOnlineRoom(code, uid) {
 
 export async function advanceOnlineRoom({ room, uid, tactic }) {
   assertTurn(room, uid);
-  if (!["balanced", "patient", "allout"].includes(tactic)) throw new Error("Choose one of the available team instructions.");
+  if (room.pendingDecision) throw new Error("Resolve the manager decision before continuing.");
+  if (!["balanced", "patient", "allout", "protect", "contain", "cutservice", "playmaker", "cautious", "waste-time"].includes(tactic)) {
+    throw new Error("Choose one of the available team instructions.");
+  }
   if (room.phase.phase === "halftime") throw new Error("Start the second half before continuing.");
   const boundary = phaseBoundary(room.phase);
   const step = Math.min(5, boundary - room.minute);
   const side = room.hostUid === uid ? "home" : "away";
   const homeTactic = side === "home" ? tactic : room.homeTactic;
   const awayTactic = side === "away" ? tactic : room.awayTactic;
+  const homeTargetId = room.homeTargetId || null;
+  const awayTargetId = room.awayTargetId || null;
   const result = simulateStep({
     home: room.home, away: room.away, minute: room.minute,
-    tactic: "balanced", homeTactic, awayTactic, stepMinutes: step, endMinute: boundary,
+    tactic: "balanced", homeTactic, awayTactic, homeTargetId, awayTargetId,
+    homeMarking: room.homeMarking, awayMarking: room.awayMarking, stepMinutes: step, endMinute: boundary,
     recentEvents: room.events.slice(-20),
     score: { home: room.scoreHome, away: room.scoreAway },
     regulationStart: room.phase.halfTimeAt === null ? Math.min(45, room.minute) : Math.min(90, 45 + room.minute - room.phase.halfTimeAt),
@@ -89,7 +99,34 @@ export async function advanceOnlineRoom({ room, uid, tactic }) {
   const finalPhase = result.abandoned ? "abandoned" : nextPhase.phase;
   const finished = ["full-time", "abandoned"].includes(finalPhase);
   const otherUid = uid === room.hostUid ? room.guestUid : room.hostUid;
-  const events = [...room.events, ...playedEvents, ...notices].slice(-150);
+  let events = [...room.events, ...playedEvents, ...notices].slice(-150);
+  const managerTeam = result.teams[side];
+  const oppositionTeam = result.teams[side === "home" ? "away" : "home"];
+  const localEvents = events.filter(event => event.minute > nextMinute - 8).map(event => ({
+    ...event,
+    ...(event.side ? { side: event.side === side ? "home" : "away" } : {}),
+  }));
+  const localHomeScore = side === "home" ? scoreHome : scoreAway;
+  const localAwayScore = side === "home" ? scoreAway : scoreHome;
+  const gameMinute = nextPhase.halfTimeAt === null
+    ? Math.min(45, nextMinute)
+    : Math.min(90, 45 + nextMinute - nextPhase.halfTimeAt);
+  const situation = finished || nextPhase.phase === "halftime" || room.pendingDecision
+    || !shouldOfferDecision(nextMinute, room.lastManagementMinute || 0, localEvents)
+    ? null
+    : managementSituation({
+      home: managerTeam, away: oppositionTeam, events: localEvents,
+      context: { minute: gameMinute, homeScore: localHomeScore, awayScore: localAwayScore, canSubstitute: false },
+      recentTypes: room.decisionTypes || [],
+    });
+  const pendingDecision = situation ? {
+    ...situation, side, minute: nextMinute, clockLabel: matchMinute(nextMinute, nextPhase),
+    source: "automatic",
+  } : null;
+  if (pendingDecision) events = [...events, {
+    id: `situation-${room.revision}`, minute: nextMinute, clockLabel: pendingDecision.clockLabel,
+    kind: "situation", side, title: pendingDecision.title, text: pendingDecision.text,
+  }].slice(-150);
   const savedEvents = JSON.parse(JSON.stringify(events));
   await runTransaction(db, async transaction => {
     const snapshot = await transaction.get(roomRef(room.code));
@@ -102,17 +139,109 @@ export async function advanceOnlineRoom({ room, uid, tactic }) {
       away: JSON.parse(JSON.stringify(result.teams.away)),
       minute: nextMinute, phase: { ...nextPhase, phase: finalPhase },
       scoreHome, scoreAway, homeTactic, awayTactic, events: savedEvents,
+      decisionTypes: room.decisionTypes || [],
+      pendingDecision,
+      lastManagementMinute: pendingDecision ? nextMinute : room.lastManagementMinute || 0,
       status: finalPhase === "abandoned" ? "abandoned" : finished ? "finished" : "active",
-      turnUid: finished ? "" : otherUid,
+      turnUid: finished ? "" : pendingDecision ? uid : otherUid,
       revision: current.revision + 1, updatedAt: Date.now(),
     });
   });
 }
 
-export async function startOnlineSecondHalf({ room, uid }) {
+export async function requestOnlineDecision({ room, uid }) {
+  assertTurn(room, uid);
+  if (room.pendingDecision) throw new Error("A manager decision is already waiting.");
+  const side = room.hostUid === uid ? "home" : "away";
+  const opponentSide = side === "home" ? "away" : "home";
+  const events = room.events.filter(event => event.minute > room.minute - 8).map(event => ({
+    ...event,
+    ...(event.side ? { side: event.side === side ? "home" : "away" } : {}),
+  }));
+  const decision = managementSituation({
+    home: room[side], away: room[opponentSide], events,
+    context: {
+      minute: room.phase.halfTimeAt === null ? Math.min(45, room.minute) : Math.min(90, 45 + room.minute - room.phase.halfTimeAt),
+      homeScore: side === "home" ? room.scoreHome : room.scoreAway,
+      awayScore: side === "home" ? room.scoreAway : room.scoreHome,
+      canSubstitute: false,
+    },
+    recentTypes: room.decisionTypes || [],
+  });
+  const pendingDecision = { ...decision, side, minute: room.minute, clockLabel: matchMinute(room.minute, room.phase), source: "manual" };
+  await updateRoomFromCurrentTurn(room, uid, {
+    pendingDecision, lastManagementMinute: room.minute,
+    events: [...room.events, {
+      id: `situation-${room.revision}`, minute: room.minute, clockLabel: pendingDecision.clockLabel,
+      kind: "situation", side, title: pendingDecision.title, text: pendingDecision.text,
+    }].slice(-150),
+  });
+}
+
+export async function resolveOnlineDecision({ room, uid, choice }) {
+  assertTurn(room, uid);
+  const pending = room.pendingDecision;
+  const side = room.hostUid === uid ? "home" : "away";
+  if (!pending || pending.side !== side) throw new Error("There is no manager decision waiting for you.");
+  const selected = pending.choices.find(item => item.label === choice.label);
+  if (!selected) throw new Error("Choose one of the available instructions.");
+  const tacticKey = side === "home" ? "homeTactic" : "awayTactic";
+  const targetKey = side === "home" ? "homeTargetId" : "awayTargetId";
+  const events = [...room.events, {
+    id: `choice-${room.revision}`, minute: room.minute, clockLabel: pending.clockLabel,
+    kind: "choice", title: selected.label, text: selected.note,
+  }].slice(-150);
+  const decisionTypes = [...(room.decisionTypes || []), pending.type || "tactical"].slice(-20);
+  await updateRoomFromCurrentTurn(room, uid, {
+    [tacticKey]: selected.tactic || room[tacticKey],
+    [targetKey]: selected.targetId || null,
+    pendingDecision: null, events, decisionTypes,
+  });
+}
+
+export async function setOnlineMarking({ room, uid, instruction }) {
+  assertTurn(room, uid);
+  const side = room.hostUid === uid ? "home" : "away";
+  const opponentSide = side === "home" ? "away" : "home";
+  if (instruction && (!activePlayers(room[side]).some(player => player.id === instruction.markerId)
+    || !activePlayers(room[opponentSide]).some(player => player.id === instruction.targetId))) {
+    throw new Error("Choose players who are still on the pitch.");
+  }
+  const markingKey = side === "home" ? "homeMarking" : "awayMarking";
+  const label = instruction
+    ? `${instruction.markerName} will stay close to ${instruction.targetName}`
+    : "Remove the player-marking instruction";
+  await updateRoomFromCurrentTurn(room, uid, {
+    [markingKey]: instruction ? {
+      markerId: instruction.markerId, targetId: instruction.targetId,
+      markerName: instruction.markerName, targetName: instruction.targetName,
+    } : null,
+    events: [...room.events, {
+      id: `mark-${room.revision}`, minute: room.minute, clockLabel: matchMinute(room.minute, room.phase),
+      kind: "choice", title: label, text: instruction
+        ? "This instruction makes the marked player's attacks less effective in the match model."
+        : "Your players return to their usual defensive roles.",
+    }].slice(-150),
+  });
+}
+
+async function updateRoomFromCurrentTurn(room, uid, changes) {
+  const ref = roomRef(room.code);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error("This match room no longer exists.");
+    const current = snapshot.data();
+    assertTurn(current, uid);
+    if (current.revision !== room.revision) throw new Error("The room changed. Refresh and retry.");
+    transaction.update(ref, { ...changes, revision: current.revision + 1, updatedAt: Date.now() });
+  });
+}
+
+export async function startOnlineSecondHalf({ room, uid, tactic = "balanced" }) {
   assertTurn(room, uid);
   if (room.phase.phase !== "halftime") throw new Error("The match is not at half time.");
   const otherUid = uid === room.hostUid ? room.guestUid : room.hostUid;
+  const tacticKey = uid === room.hostUid ? "homeTactic" : "awayTactic";
   await runTransaction(db, async transaction => {
     const ref = roomRef(room.code);
     const snapshot = await transaction.get(ref);
@@ -121,7 +250,7 @@ export async function startOnlineSecondHalf({ room, uid }) {
     assertTurn(current, uid);
     if (current.revision !== room.revision) throw new Error("The room changed. Refresh and retry.");
     transaction.update(ref, {
-      phase: { ...current.phase, phase: "second-half" }, turnUid: otherUid,
+      phase: { ...current.phase, phase: "second-half" }, turnUid: otherUid, [tacticKey]: tactic,
       events: [...current.events, { id: `second-half-${current.revision}`, minute: current.minute, clockLabel: "45'", kind: "info", text: "Second half kickoff." }].slice(-150),
       revision: current.revision + 1, updatedAt: Date.now(),
     });

@@ -233,6 +233,12 @@ input:focus-visible { outline: 2px solid #f07c72; outline-offset: 2px; }
 .online-turn-indicator.your-turn { border-color: #4e8066; background: #1f332a; color: #c8efd8; }
 .online-status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #edbe64; }
 .online-turn-indicator.your-turn .online-status-dot { background: #83c6a4; box-shadow: 0 0 8px #83c6a4aa; }
+.online-decision { margin: 8px 0 12px; padding: 14px; border: 1px solid #526c5d; border-radius: 12px; background: #242d29; }
+.online-decision h3 { margin: 5px 0 8px; font-size: 17px; }
+.online-decision > p:not(.eyebrow) { color: #d7d9d8; font-size: 13px; line-height: 1.5; }
+.online-decision .decision-choices { padding-top: 6px; gap: 7px; }
+.online-decision .choice-button { padding: 10px 11px; font-size: 13px; }
+.online-decision .choice-button small { display: block; margin-top: 5px; color: #c7c8ca; line-height: 1.4; }
 .save-confirmation { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 15px; margin: 16px 0; border: 1px solid #83c6a4; border-radius: 12px; background: #17392b; color: #c5f3d7; }
 .save-confirmation > div { flex: 1; min-width: 150px; }
 .save-confirmation p { color: #d1eddb; margin: 6px 0 0; }

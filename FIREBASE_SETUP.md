@@ -23,7 +23,7 @@ No database rules or authentication settings have been deployed remotely by this
 - Before loading, the previous browser career is backed up under `dugout-career-v1-backup-<timestamp>` in localStorage.
 - Loading is disabled while a match is in progress. Finish that match first.
 - **Log out** in the expanded IS manager tile, or **Sign out** in Account, calls Firebase sign-out. The local browser career remains on the device.
-- Select **Play → Multiplayer** while signed in. Create a room, share its six-character code with another signed-in manager, and wait for them to join. Each manager chooses a team and then takes alternating five-minute turns. Room state is polled from Firestore about every two seconds.
+- Select **Play → Multiplayer** while signed in. Create a room, share its six-character code with another signed-in manager, and wait for them to join. Each manager chooses a team and takes alternating five-minute turns from the usual match screen. Tactical decisions and player marking are available in the match ticket. Room state is polled from Firestore about every two seconds.
 - Multiplayer requires Firestore to be enabled and the updated `firestore.rules` to be published. If multiplayer reports permission denied, publish the rules and confirm Email/Password sign-in and Firestore are enabled.
 
 Cloud saving is manual in this first version. Saves include the manager and completed match timelines/decisions. Squad selections, custom database players, formation selection before kickoff, and an in-progress match are not cloud-saved yet. The CSV remains local. Read-only profiles are unchanged.

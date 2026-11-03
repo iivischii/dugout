@@ -58,7 +58,9 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'home', 'away', 'minute', 'phase', 'scoreHome', 'scoreAway',
             'homeTactic', 'awayTactic', 'events', 'status', 'turnUid',
-            'revision', 'updatedAt'
+            'revision', 'updatedAt', 'homeTargetId', 'awayTargetId',
+            'homeMarking', 'awayMarking', 'pendingDecision', 'decisionTypes',
+            'lastManagementMinute'
           ]);
       }
       allow get: if signedIn()
@@ -79,7 +81,9 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'code', 'hostUid', 'guestUid', 'hostName', 'guestName', 'home', 'away',
           'status', 'turnUid', 'minute', 'phase', 'scoreHome', 'scoreAway',
-          'homeTactic', 'awayTactic', 'events', 'revision', 'createdAt', 'updatedAt'
+          'homeTactic', 'awayTactic', 'homeTargetId', 'awayTargetId',
+          'homeMarking', 'awayMarking', 'pendingDecision', 'decisionTypes',
+          'lastManagementMinute', 'events', 'revision', 'createdAt', 'updatedAt'
         ]);
       allow update: if signedIn() && (
         (resource.data.status == 'waiting'

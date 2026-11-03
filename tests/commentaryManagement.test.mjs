@@ -110,6 +110,21 @@ test('marking an opponent reduces their modeled shots and makes their attacking 
   assert.ok(targetShots(marking) < targetShots(null));
 });
 
+test('online managers can independently mark threats from either side', () => {
+  function targetedShots(options) {
+    let seed = 5391;
+    const random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296);
+    let count = 0;
+    for (let index = 0; index < 1500; index++) {
+      count += simulateStep({ home, away, minute: 0, stepMinutes: 1, random, ...options })
+        .events.filter(event => event.side === "home" && event.playerId === "home-1").length;
+    }
+    return count;
+  }
+  assert.ok(targetedShots({ awayMarking: { markerId: "away-2", targetId: "home-1" } })
+    < targetedShots({ awayMarking: null }));
+});
+
 test('buildup animation ends at the involved defender, not the goal', () => {
   const action = { kind: 'buildup', side: 'home', creatorId: 'home-5', playerId: 'home-8', opponentPlayerId: 'away-3', outcome: 'intercepted' };
   const frame = pitchFrame({ teams: { home, away }, homeFormation: '4-3-3', action, progress: 1 });

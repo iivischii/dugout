@@ -29,7 +29,7 @@ export function teamSeasons(players, team) {
 }
 
 export function buildOpponent(players, team, chosenSeason) {
-  if (clubsMatch(team, "Real Madrid")) return buildCurrentRealMadrid(players);
+  if (clubsMatch(team, "Real Madrid") && (!chosenSeason || chosenSeason === "2026/27")) return buildCurrentRealMadrid(players);
   const season = chosenSeason || teamSeasons(players, team)[0];
   const pool = players.filter(player => clubsMatch(player.team, team) && player.season === season && player.dataStatus !== "missing")
     .sort((a, b) => (b.stats.minutes || 0) - (a.stats.minutes || 0));
